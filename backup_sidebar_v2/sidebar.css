@@ -1,0 +1,193 @@
+/* =====================================================
+   VORTEX WMS Enterprise Sidebar
+===================================================== */
+
+:root{
+    --sidebar-width:260px;
+    --sidebar-bg:#111827;
+    --sidebar-hover:#1f2937;
+    --primary:#2563eb;
+    --text:#d1d5db;
+    --white:#ffffff;
+}
+
+.sidebar{
+
+    position:fixed;
+
+    left:0;
+    top:0;
+
+    width:var(--sidebar-width);
+
+    height:100vh;
+
+    background:var(--sidebar-bg);
+
+    overflow-y:auto;
+
+    overflow-x:hidden;
+
+    z-index:1050;
+
+    transition:.3s;
+
+}
+
+/* Scroll */
+
+.sidebar::-webkit-scrollbar{
+
+    width:6px;
+
+}
+
+.sidebar::-webkit-scrollbar-thumb{
+
+    background:#374151;
+
+    border-radius:20px;
+
+}
+
+/* Logo */
+
+.logo-area{
+
+    padding:22px;
+
+    text-align:center;
+
+    border-bottom:1px solid rgba(255,255,255,.08);
+
+}
+
+.logo-area img{
+
+    width:170px;
+
+}
+
+.brand-sub{
+
+    color:#9ca3af;
+
+    font-size:12px;
+
+    margin-top:8px;
+
+}
+
+/* Menu */
+
+.menu{
+
+    list-style:none;
+
+    padding:15px 0;
+
+    margin:0;
+
+}
+
+.menu-title{
+
+    color:#6b7280;
+
+    font-size:11px;
+
+    font-weight:700;
+
+    padding:18px 22px 8px;
+
+    letter-spacing:1px;
+
+    text-transform:uppercase;
+
+}
+
+/* Links */
+
+.menu li a{
+
+    display:flex;
+
+    align-items:center;
+
+    gap:12px;
+
+    color:var(--text);
+
+    text-decoration:none;
+
+    padding:12px 22px;
+
+    transition:.25s;
+
+    border-left:4px solid transparent;
+
+}
+
+.menu li a:hover{
+
+    background:var(--sidebar-hover);
+
+    color:var(--white);
+
+    border-left:4px solid var(--primary);
+
+}
+
+.menu li a.active{
+
+    background:var(--primary);
+
+    color:#fff;
+
+    border-left:4px solid #60a5fa;
+
+}
+
+/* Icons */
+
+.menu li a i{
+
+    width:22px;
+
+    text-align:center;
+
+}
+
+/* Logout */
+
+.logout{
+
+    color:#ef4444 !important;
+
+}
+
+.logout:hover{
+
+    background:#7f1d1d !important;
+
+    color:#fff !important;
+
+}
+
+/* Mobile */
+
+@media(max-width:992px){
+
+.sidebar{
+
+    left:-260px;
+
+}
+
+.sidebar.show{
+
+    left:0;
+
+}
+
+}

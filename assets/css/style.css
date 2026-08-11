@@ -1,0 +1,239 @@
+/* =====================================================
+   VORTEX WMS — ENTERPRISE UI
+===================================================== */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html,
+body {
+    width: 100%;
+    min-height: 100%;
+
+    font-family: "Poppins", sans-serif;
+
+    background: #f4f7fb;
+
+    color: #1e293b;
+
+    overflow-x: hidden;
+}
+
+
+/* =====================================================
+   GLOBAL VARIABLES
+===================================================== */
+
+:root {
+
+    --sidebar-width: 270px;
+
+    --navbar-height: 48px;
+
+}
+
+
+/* =====================================================
+   MAIN CONTENT
+===================================================== */
+
+.main-content {
+
+    margin-left: var(--sidebar-width);
+
+    padding-top: var(--navbar-height);
+
+    min-height: 100vh;
+
+    width: calc(100% - var(--sidebar-width));
+
+    transition: .3s ease;
+
+}
+
+
+/* =====================================================
+   PAGE CONTENT
+===================================================== */
+
+.content {
+
+    width: 100%;
+
+    margin: 0;
+
+    padding: 25px;
+
+}
+
+
+/* =====================================================
+   CONTAINER
+===================================================== */
+
+.container-fluid {
+
+    width: 100%;
+
+    max-width: none;
+
+    margin: 0;
+
+    padding-left: 0;
+
+    padding-right: 0;
+
+}
+
+
+/* =====================================================
+   CARDS
+===================================================== */
+
+.card {
+
+    border: none;
+
+    border-radius: 16px;
+
+    box-shadow:
+        0 5px 20px rgba(0, 0, 0, .05);
+
+}
+
+
+/* =====================================================
+   BUTTONS
+===================================================== */
+
+.btn {
+
+    border-radius: 10px;
+
+    white-space: nowrap;
+
+}
+
+
+/* =====================================================
+   TABLE
+===================================================== */
+
+.table {
+
+    margin-bottom: 0;
+
+}
+
+.table-responsive {
+
+    width: 100%;
+
+    overflow-x: auto;
+
+}
+
+
+/* =====================================================
+   FORM
+===================================================== */
+
+.form-control,
+.form-select {
+
+    border-radius: 10px;
+
+    min-height: 45px;
+
+}
+
+
+/* =====================================================
+   PAGE TITLE
+===================================================== */
+
+.page-title {
+
+    font-size: 24px;
+
+    font-weight: 700;
+
+    margin-bottom: 25px;
+
+}
+
+
+/* =====================================================
+   NAVBAR
+===================================================== */
+
+.top-navbar {
+
+    position: fixed;
+
+    top: 0;
+
+    left: var(--sidebar-width);
+
+    right: 0;
+
+    width: auto;
+
+    height: var(--navbar-height);
+
+    z-index: 1000;
+
+}
+
+
+/* =====================================================
+   MOBILE
+===================================================== */
+
+@media (max-width: 992px) {
+
+    .main-content {
+
+        margin-left: 0;
+
+        width: 100%;
+
+        padding-top: var(--navbar-height);
+
+    }
+
+    .content {
+
+        margin: 0;
+
+        padding: 20px;
+
+    }
+
+    .top-navbar {
+
+        left: 0;
+
+        width: 100%;
+
+    }
+
+}
+
+
+/* =====================================================
+   SMALL MOBILE
+===================================================== */
+
+@media (max-width: 576px) {
+
+    .content {
+
+        padding: 15px;
+
+    }
+
+}
