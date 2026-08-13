@@ -119,9 +119,30 @@ include "../../../includes/sidebar.php";
                                     </select>
                                 </div>
 
+                                <!-- Dynamic Warehouse Dropdown (Fixed SQL Query) -->
                                 <div class="col-md-4 mb-3">
-                                    <label class="form-label">Warehouse</label>
-                                    <input type="text" name="warehouse" class="form-control" value="Main Warehouse">
+                                    <label class="form-label">Warehouse <span class="text-danger">*</span></label>
+                                    <select name="warehouse" class="form-select" required>
+                                        <option value="">-- Select Warehouse --</option>
+                                        <?php
+                                        $db_connection = isset($conn) ? $conn : (isset($db) ? $db : null);
+                                        
+                                        if ($db_connection) {
+                                            // Fixed table name to 'warehouse'
+                                            $wh_query = "SELECT * FROM warehouse WHERE status='Active' ORDER BY warehouse_name ASC";
+                                            $wh_result = mysqli_query($db_connection, $wh_query);
+
+                                            if ($wh_result && mysqli_num_rows($wh_result) > 0) {
+                                                while ($wh = mysqli_fetch_assoc($wh_result)) {
+                                                    $wh_name = $wh['warehouse_name'] ?? $wh['name'] ?? $wh['wh_name'] ?? '';
+                                                    if (!empty($wh_name)) {
+                                                        echo '<option value="' . htmlspecialchars($wh_name) . '">' . htmlspecialchars($wh_name) . '</option>';
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        ?>
+                                    </select>
                                 </div>
 
                                 <div class="col-md-4 mb-3">
