@@ -4,7 +4,7 @@ ini_set('display_errors', 1);
 
 session_start();
 require_once "config/database.php";
-require_once "config/logger.php"; // 📍 1. LOGGER FILE INCLUDE KI GAYI HAI
+require_once "config/logger.php"; // 📍 LOGGER FILE INCLUDE
 
 if(isset($_SESSION['employee_id'])){
     header("Location:dashboard.php");
@@ -14,22 +14,28 @@ if(isset($_SESSION['employee_id'])){
 $error = "";
 if(isset($_POST['login'])){
 
-    $employee_id = trim($_POST['employee_id']);
+    // Input can be Employee ID, Email, or Username
+    $login_input = mysqli_real_escape_string($conn, trim($_POST['employee_id']));
     $password    = $_POST['password'];
 
+    // Query to check matching Employee ID, Email, OR Username
     $sql = "SELECT *
             FROM employees
-            WHERE employee_id='$employee_id'
-            AND status='Active'
+            WHERE (employee_id='$login_input' OR email='$login_input' OR username='$login_input')
             LIMIT 1";
 
-    $result = mysqli_query($conn,$sql);
+    $result = mysqli_query($conn, $sql);
 
-    if(mysqli_num_rows($result)==1){
+    if($result && mysqli_num_rows($result) == 1){
 
         $user = mysqli_fetch_assoc($result);
 
-        if(password_verify($password,$user['password'])){
+        // ❌ 1. Inactive Account Guard Check
+        if ($user['status'] !== 'Active') {
+            $error = "Your account is Inactive. Please contact HR or Administrator.";
+        } 
+        // 2. Password verification (Plain text or Hashed)
+        elseif ($password === $user['password'] || password_verify($password, $user['password'])){
 
             $_SESSION['user_id']      = $user['id'];
             $_SESSION['employee_id']  = $user['employee_id'];
@@ -38,18 +44,32 @@ if(isset($_POST['login'])){
             $_SESSION['department']   = $user['department'];
             $_SESSION['warehouse']    = $user['warehouse'];
 
-            // 📍 2. YAHAN LOG ACTIVITY ADD KI GAYI HAI (HEADER REDIRECT SE THIK PEHLE)
-            logActivity($conn, 'Authentication', 'LOGIN', 'Employee logged in successfully');
+            // 🕒 3. AUTO ATTENDANCE CHECK-IN (Exact DB Column Mapping)
+            $user_pk_id = $user['id']; // Primary key ID for attendance table foreign key
+            $today      = date("Y-m-d");
+            $curr_time  = date("H:i:s");
+
+            // Check if attendance is already recorded for today
+            $att_check = mysqli_query($conn, "SELECT id FROM attendance WHERE employee_id = '$user_pk_id' AND attendance_date = '$today'");
+            
+            if ($att_check && mysqli_num_rows($att_check) == 0) {
+                mysqli_query($conn, "INSERT INTO attendance (employee_id, attendance_date, check_in, status) VALUES ('$user_pk_id', '$today', '$curr_time', 'Present')");
+            }
+
+            // Log Activity
+            if (function_exists('logActivity')) {
+                logActivity($conn, 'Authentication', 'LOGIN', 'Employee logged in & attendance checked-in successfully');
+            }
 
             header("Location:dashboard.php");
             exit();
 
-        }else{
-            $error="Invalid Employee ID or Password.";
+        } else {
+            $error = "Invalid Password.";
         }
 
-    }else{
-        $error="Invalid Employee ID or Password.";
+    } else {
+        $error = "Invalid Employee ID / Email / Username or Account not found.";
     }
 
 }
@@ -62,7 +82,7 @@ if(isset($_POST['login'])){
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>VORTEX WMS | Enterprise Login</title>
 
-<!-- Google Fonts: Cursive Heading & Body Font -->
+<!-- Google Fonts -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -104,12 +124,12 @@ if(isset($_POST['login'])){
 
         <form method="POST">
             <div class="form-group">
-                <label>Employee ID</label>
+                <label>Employee ID / Email / Username</label>
                 <div class="input-group">
                     <span class="input-group-text">
-                        <i class="fa-solid fa-id-badge"></i>
+                        <i class="fa-solid fa-user-check"></i>
                     </span>
-                    <input type="text" name="employee_id" class="form-control" placeholder="Enter Employee ID" required>
+                    <input type="text" name="employee_id" class="form-control" placeholder="ID, Email, or Username" required>
                 </div>
             </div>
 

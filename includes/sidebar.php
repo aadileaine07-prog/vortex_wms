@@ -48,6 +48,13 @@ if (session_status() === PHP_SESSION_NONE) {
 
         <li class="menu-title">Inbound</li>
 
+        <li class="nav-item">
+    <a href="/vortex_wms/modules/purchase_orders/index.php" class="nav-link">
+        <i class="fa-solid fa-file-invoice-dollar me-2"></i>
+        <span>Purchase Orders</span>
+    </a>
+</li>
+
         <li>
             <a href="/vortex_wms/modules/inbound/asn/index.php">
                 <i class="fa-solid fa-file-invoice"></i>
@@ -109,6 +116,21 @@ if (session_status() === PHP_SESSION_NONE) {
             </a>
         </li>
 
+        <li class="nav-item">
+             <a class="nav-link" href="/vortex_wms/modules/inventory/bin_map.php">
+        <i class="fa-solid fa-border-all me-2 text-success"></i> 
+        Visual Bin Map
+          </a>
+        </li>
+
+        <li class="nav-item">
+            <a class="nav-link" href="/vortex_wms/modules/inventory/alerts.php">
+        <i class="fa-solid fa-bell me-2 text-warning"></i> 
+        Expiry & Low Stock Alerts
+            </a>
+        </li>
+        
+
 
         <!-- OUTBOUND -->
 
@@ -127,6 +149,11 @@ if (session_status() === PHP_SESSION_NONE) {
                 Picking
             </a>
         </li>
+        <li class="nav-item">
+    <a class="nav-link" href="/vortex_wms/modules/outbound/pick_path.php">
+        <i class="fa-solid fa-route me-2 text-info"></i> Optimized Pick Path
+    </a>
+</li>
 
         <li>
             <a href="/vortex_wms/modules/outbound/packing/index.php">
@@ -201,6 +228,14 @@ if (session_status() === PHP_SESSION_NONE) {
             </a>
         </li>
 
+        <!-- Payroll Link -->
+<li class="nav-item">
+    <a href="/vortex_wms/modules/payroll/index.php" class="nav-link text-white">
+        <i class="fa-solid fa-file-invoice-dollar me-2 text-success"></i>
+        <span>Payroll</span>
+    </a>
+</li>
+
 
         <!-- REPORTS -->
 
@@ -234,8 +269,35 @@ if (session_status() === PHP_SESSION_NONE) {
             </a>
         </li>
         <!-- REPORTS SECTION -->
-<li><a href="/vortex_wms/modules/reports/audit_logs.php"><i class="fa-solid fa-clock-rotate-left"></i> Audit Logs</a></li>
+        <li><a href="/vortex_wms/modules/reports/audit_logs.php">
+                <i class="fa-solid fa-clock-rotate-left"></i>
+                Audit Logs
+            </a>
+        </li>
 
+        <li class="nav-item">
+    <a class="nav-link" href="/vortex_wms/modules/reports/abc_analysis.php">
+        <i class="fa-solid fa-chart-pie me-2 text-secondary"></i> ABC Inventory Velocity
+    </a>
+</li>
+
+
+ <!-- 🛠️ TOOLS SECTION -->
+<li class="nav-item">
+    <a class="nav-link" href="/vortex_wms/modules/tools/barcode_generator.php">
+        <i class="fa-solid fa-barcode me-2 text-primary"></i> Barcode / QR Generator
+    </a>
+</li>
+<li class="nav-item">
+    <a class="nav-link" href="/vortex_wms/modules/tools/scanner.php">
+        <i class="fa-solid fa-mobile-screen-button me-2 text-danger"></i> Mobile Scanner
+    </a>
+</li>
+<li class="nav-item">
+    <a class="nav-link" href="/vortex_wms/modules/tools/universal_import.php">
+        <i class="fa-solid fa-file-import me-2 text-info"></i> Universal Import
+    </a>
+</li>
 
         <!-- SYSTEM -->
 

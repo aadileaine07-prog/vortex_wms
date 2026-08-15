@@ -1,23 +1,33 @@
 <?php
 session_start();
 
+// Dynamic Project Root
+$projectRoot = file_exists(__DIR__ . "/../../../config/database.php") ? dirname(__DIR__, 3) : dirname(__DIR__, 4);
+
 if (!isset($_SESSION['employee_id'])) {
-    header("Location: ../../../login.php");
+    header("Location: /vortex_wms/login.php");
     exit();
 }
 
-require_once "../../../config/database.php";
+require_once $projectRoot . "/config/database.php";
 
+// Fetch Pending and Partially Picked Sales Orders
 $result = mysqli_query($conn, "
-    SELECT *
-    FROM sales_orders
-    WHERE status='Pending'
-    ORDER BY id DESC
+    SELECT 
+        so.*,
+        COUNT(soi.id) AS total_items,
+        SUM(soi.ordered_qty) AS total_ordered_qty,
+        COALESCE(SUM(soi.picked_qty), 0) AS total_picked_qty
+    FROM sales_orders so
+    LEFT JOIN sales_order_items soi ON so.id = soi.sales_order_id
+    WHERE so.status IN ('Pending', 'Approved', 'Partially Picked')
+    GROUP BY so.id
+    ORDER BY so.id DESC
 ");
 
-include "../../../includes/header.php";
-include "../../../includes/navbar.php";
-include "../../../includes/sidebar.php";
+include $projectRoot . "/includes/header.php";
+include $projectRoot . "/includes/navbar.php";
+include $projectRoot . "/includes/sidebar.php";
 ?>
 
 <div class="content">
@@ -27,9 +37,9 @@ include "../../../includes/sidebar.php";
         <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
             <div>
                 <h2 class="fw-bold text-dark mb-1">
-                    <i class="fa-solid fa-hand-holding-hand text-primary me-2"></i>Picking Orders
+                    <i class="fa-solid fa-hand-holding-hand text-primary me-2"></i>Picking Orders List
                 </h2>
-                <p class="text-muted mb-0">Select pending sales orders to begin item picking</p>
+                <p class="text-muted mb-0">Select orders to assign and begin item picking from warehouse bins</p>
             </div>
             <div>
                 <a href="../sales_order/index.php" class="btn btn-outline-secondary px-3">
@@ -54,7 +64,7 @@ include "../../../includes/sidebar.php";
         <?php endif; ?>
 
         <!-- Table Card -->
-        <div class="card shadow-sm border-0 rounded-3">
+        <div class="card shadow-sm border-0 rounded-4">
             <div class="card-body p-4">
 
                 <!-- Search Filter -->
@@ -70,43 +80,53 @@ include "../../../includes/sidebar.php";
                             <tr>
                                 <th width="60">ID</th>
                                 <th>Order No</th>
-                                <th>Customer</th>
+                                <th>Customer Name</th>
                                 <th>Order Date</th>
+                                <th>Total Items</th>
                                 <th>Status</th>
                                 <th width="180" class="text-center">Action</th>
                             </tr>
                         </thead>
                         <tbody>
-                            <?php
-                            if ($result && mysqli_num_rows($result) > 0) {
-                                while ($row = mysqli_fetch_assoc($result)) {
-                            ?>
+                            <?php if ($result && mysqli_num_rows($result) > 0): ?>
+                                <?php while ($row = mysqli_fetch_assoc($result)): ?>
                                     <tr>
                                         <td><strong>#<?= $row['id']; ?></strong></td>
-                                        <td><span class="badge bg-light text-dark border"><?= htmlspecialchars($row['order_number']); ?></span></td>
+                                        <td><span class="badge bg-secondary font-monospace fs-6"><?= htmlspecialchars($row['order_number']); ?></span></td>
                                         <td><strong><?= htmlspecialchars($row['customer_name']); ?></strong></td>
-                                        <td><?= date("d-m-Y", strtotime($row['order_date'])); ?></td>
+                                        <td><?= date("d M Y", strtotime($row['order_date'])); ?></td>
+                                        <td>
+                                            <span class="badge bg-light text-dark border">
+                                                <?= $row['total_items']; ?> SKUs (<?= $row['total_ordered_qty']; ?> Units)
+                                            </span>
+                                        </td>
                                         <td>
                                             <?php
-                                            if ($row['status'] == "Pending") {
-                                                echo '<span class="badge bg-warning text-dark">Pending</span>';
+                                            $st = $row['status'];
+                                            if ($st == 'Pending' || $st == 'Approved') {
+                                                echo '<span class="badge bg-warning text-dark px-3 py-2"><i class="fa-solid fa-clock me-1"></i> Ready to Pick</span>';
+                                            } elseif ($st == 'Partially Picked') {
+                                                echo '<span class="badge bg-info text-dark px-3 py-2"><i class="fa-solid fa-spinner me-1"></i> Partial Picked</span>';
                                             } else {
-                                                echo '<span class="badge bg-success">' . htmlspecialchars($row['status']) . '</span>';
+                                                echo '<span class="badge bg-success px-3 py-2">' . htmlspecialchars($st) . '</span>';
                                             }
                                             ?>
                                         </td>
                                         <td class="text-center">
-                                            <a href="start.php?id=<?= $row['id']; ?>" class="btn btn-success btn-sm px-3 shadow-sm">
+                                            <a href="start.php?id=<?= $row['id']; ?>" class="btn btn-success btn-sm px-3 shadow-sm fw-bold">
                                                 <i class="fa-solid fa-play me-1"></i> Start Picking
                                             </a>
                                         </td>
                                     </tr>
-                            <?php
-                                }
-                            } else {
-                                echo "<tr><td colspan='6' class='text-center text-muted py-4'>No Pending Orders for Picking</td></tr>";
-                            }
-                            ?>
+                                <?php endwhile; ?>
+                            <?php else: ?>
+                                <tr>
+                                    <td colspan="7" class="text-center text-muted py-5">
+                                        <i class="fa-solid fa-circle-check fs-2 text-success d-block mb-2"></i>
+                                        No Pending Orders for Picking
+                                    </td>
+                                </tr>
+                            <?php endif; ?>
                         </tbody>
                     </table>
                 </div>
@@ -117,7 +137,7 @@ include "../../../includes/sidebar.php";
     </div>
 </div>
 
-<?php include "../../../includes/footer.php"; ?>
+<?php include $projectRoot . "/includes/footer.php"; ?>
 
 <script>
 document.getElementById("searchInput").addEventListener("keyup", function() {

@@ -1,22 +1,48 @@
 <?php
 session_start();
 
+// Dynamic Project Root
+$projectRoot = file_exists(__DIR__ . "/../../../config/database.php") ? dirname(__DIR__, 3) : dirname(__DIR__, 4);
+
 if (!isset($_SESSION['employee_id'])) {
-    header("Location: ../../../login.php");
+    header("Location: /vortex_wms/login.php");
     exit();
 }
 
-require_once "../../../config/database.php";
+require_once $projectRoot . "/config/database.php";
 
+// Fetch Suppliers with Linked Purchase Order Counts
 $result = mysqli_query($conn, "
-    SELECT *
-    FROM suppliers
-    ORDER BY id DESC
+    SELECT 
+        s.*,
+        COUNT(po.id) AS total_pos
+    FROM suppliers s
+    LEFT JOIN purchase_orders po ON s.id = po.supplier_id
+    GROUP BY s.id
+    ORDER BY s.id DESC
 ");
 
-include "../../../includes/header.php";
-include "../../../includes/navbar.php";
-include "../../../includes/sidebar.php";
+// Metric Summary Counters
+$cnt_total    = 0;
+$cnt_active   = 0;
+$cnt_inactive = 0;
+
+$suppliers_list = [];
+if ($result && mysqli_num_rows($result) > 0) {
+    while ($row = mysqli_fetch_assoc($result)) {
+        $suppliers_list[] = $row;
+        $cnt_total++;
+        if (($row['status'] ?? 'Active') == 'Active') {
+            $cnt_active++;
+        } else {
+            $cnt_inactive++;
+        }
+    }
+}
+
+include $projectRoot . "/includes/header.php";
+include $projectRoot . "/includes/navbar.php";
+include $projectRoot . "/includes/sidebar.php";
 ?>
 
 <div class="content">
@@ -28,10 +54,10 @@ include "../../../includes/sidebar.php";
                 <h2 class="fw-bold text-dark mb-1">
                     <i class="fa-solid fa-industry text-primary me-2"></i>Supplier Master
                 </h2>
-                <p class="text-muted mb-0">Manage vendor directory, tax details, and payment terms</p>
+                <p class="text-muted mb-0">Manage vendor directory, tax GSTIN details, and linked purchase orders</p>
             </div>
             <div>
-                <a href="add.php" class="btn btn-primary px-3 shadow-sm">
+                <a href="add.php" class="btn btn-primary px-3 shadow-sm fw-bold">
                     <i class="fa-solid fa-plus me-1"></i> Add Supplier
                 </a>
             </div>
@@ -52,8 +78,45 @@ include "../../../includes/sidebar.php";
             </div>
         <?php endif; ?>
 
+        <!-- KPI Metrics Row -->
+        <div class="row g-3 mb-4">
+            <div class="col-md-4">
+                <div class="card border-0 shadow-sm rounded-4 p-3 bg-white border-start border-4 border-primary">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <small class="text-muted fw-bold">TOTAL SUPPLIERS</small>
+                            <h3 class="fw-bold text-dark mb-0 mt-1"><?= $cnt_total; ?></h3>
+                        </div>
+                        <i class="fa-solid fa-building-user fa-2x text-primary opacity-50"></i>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card border-0 shadow-sm rounded-4 p-3 bg-white border-start border-4 border-success">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <small class="text-success fw-bold">ACTIVE VENDORS</small>
+                            <h3 class="fw-bold text-success mb-0 mt-1"><?= $cnt_active; ?></h3>
+                        </div>
+                        <i class="fa-solid fa-circle-check fa-2x text-success opacity-50"></i>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card border-0 shadow-sm rounded-4 p-3 bg-white border-start border-4 border-danger">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <small class="text-danger fw-bold">INACTIVE VENDORS</small>
+                            <h3 class="fw-bold text-danger mb-0 mt-1"><?= $cnt_inactive; ?></h3>
+                        </div>
+                        <i class="fa-solid fa-ban fa-2x text-danger opacity-50"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Table Card -->
-        <div class="card shadow-sm border-0 rounded-3">
+        <div class="card shadow-sm border-0 rounded-4">
             <div class="card-body p-4">
 
                 <!-- Search Input -->
@@ -73,37 +136,49 @@ include "../../../includes/sidebar.php";
                                 <th>Contact Person</th>
                                 <th>Contact No</th>
                                 <th>GSTIN</th>
+                                <th>Linked POs</th>
                                 <th>Status</th>
-                                <th width="180" class="text-center">Action</th>
+                                <th width="200" class="text-center">Action</th>
                             </tr>
                         </thead>
                         <tbody>
-                            <?php if ($result && mysqli_num_rows($result) > 0): ?>
-                                <?php while ($row = mysqli_fetch_assoc($result)): ?>
+                            <?php if (!empty($suppliers_list)): ?>
+                                <?php foreach ($suppliers_list as $row): ?>
                                     <tr>
                                         <td><strong>#<?= $row['id']; ?></strong></td>
-                                        <td><span class="badge bg-light text-dark border"><?= htmlspecialchars($row['supplier_code']); ?></span></td>
-                                        <td><strong><?= htmlspecialchars($row['supplier_name']); ?></strong></td>
+                                        <td><span class="badge bg-secondary font-monospace fs-6"><?= htmlspecialchars($row['supplier_code']); ?></span></td>
+                                        <td>
+                                            <strong><?= htmlspecialchars($row['supplier_name']); ?></strong>
+                                            <small class="d-block text-muted"><?= htmlspecialchars($row['email'] ?: 'No Email'); ?></small>
+                                        </td>
                                         <td><?= htmlspecialchars($row['contact_person'] ?? '-'); ?></td>
                                         <td><?= htmlspecialchars($row['contact'] ?? '-'); ?></td>
-                                        <td><span class="font-monospace text-uppercase"><?= htmlspecialchars($row['gst_number'] ?? '-'); ?></span></td>
+                                        <td><span class="font-monospace text-uppercase fw-semibold"><?= htmlspecialchars($row['gst_number'] ?? '-'); ?></span></td>
+                                        <td>
+                                            <span class="badge bg-light text-dark border">
+                                                <i class="fa-solid fa-file-invoice me-1 text-primary"></i><?= $row['total_pos']; ?> Orders
+                                            </span>
+                                        </td>
                                         <td>
                                             <?php if (($row['status'] ?? 'Active') == 'Active'): ?>
-                                                <span class="badge bg-success">Active</span>
+                                                <span class="badge bg-success px-2 py-1">Active</span>
                                             <?php else: ?>
-                                                <span class="badge bg-danger">Inactive</span>
+                                                <span class="badge bg-danger px-2 py-1">Inactive</span>
                                             <?php endif; ?>
                                         </td>
                                         <td class="text-center">
-                                            <a href="view.php?id=<?= $row['id']; ?>" class="btn btn-info btn-sm text-white"><i class="fa-solid fa-eye"></i></a>
-                                            <a href="edit.php?id=<?= $row['id']; ?>" class="btn btn-warning btn-sm"><i class="fa-solid fa-pen-to-square"></i></a>
-                                            <a href="delete.php?id=<?= $row['id']; ?>" class="btn btn-danger btn-sm" onclick="return confirm('Delete this supplier?');"><i class="fa-solid fa-trash"></i></a>
+                                            <a href="view.php?id=<?= $row['id']; ?>" class="btn btn-info btn-sm text-white me-1" title="View Supplier"><i class="fa-solid fa-eye"></i></a>
+                                            <a href="edit.php?id=<?= $row['id']; ?>" class="btn btn-warning btn-sm me-1 text-dark" title="Edit Supplier"><i class="fa-solid fa-pen-to-square"></i></a>
+                                            <a href="delete.php?id=<?= $row['id']; ?>" class="btn btn-danger btn-sm" onclick="return confirm('Are you sure you want to delete this supplier?');" title="Delete Supplier"><i class="fa-solid fa-trash"></i></a>
                                         </td>
                                     </tr>
-                                <?php endwhile; ?>
+                                <?php endforeach; ?>
                             <?php else: ?>
                                 <tr>
-                                    <td colspan="8" class="text-center text-muted py-4">No Suppliers Found</td>
+                                    <td colspan="9" class="text-center text-muted py-5">
+                                        <i class="fa-solid fa-industry fs-2 d-block mb-2 text-secondary"></i>
+                                        No Suppliers Found in System
+                                    </td>
                                 </tr>
                             <?php endif; ?>
                         </tbody>
@@ -111,20 +186,12 @@ include "../../../includes/sidebar.php";
                 </div>
 
             </div>
-            <div class="card-footer bg-light p-3 d-flex justify-content-between align-items-center">
-                <a href="../../../dashboard.php" class="btn btn-outline-secondary">
-                    <i class="fa-solid fa-arrow-left me-1"></i> Dashboard
-                </a>
-                <a href="add.php" class="btn btn-primary">
-                    <i class="fa-solid fa-plus me-1"></i> Add Supplier
-                </a>
-            </div>
         </div>
 
     </div>
 </div>
 
-<?php include "../../../includes/footer.php"; ?>
+<?php include $projectRoot . "/includes/footer.php"; ?>
 
 <script>
 document.getElementById("searchInput").addEventListener("keyup", function() {

@@ -1,3 +1,61 @@
+<?php
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
+// 🟢 Database & Logger Connection Auto-Include
+if (!isset($conn)) {
+    $db_path = __DIR__ . "/../config/database.php";
+    if (file_exists($db_path)) {
+        require_once $db_path;
+    }
+}
+
+if (isset($_SESSION['user_id']) && isset($conn)) {
+    $current_user_id = $_SESSION['user_id'];
+
+    // 1. 🟢 Live Activity Tracker (Online status update ke liye)
+    mysqli_query($conn, "UPDATE employees SET last_activity = NOW() WHERE id = '$current_user_id'");
+
+    // 2. ⚡ Force Logout Guard Check
+    $chk_res = mysqli_query($conn, "SELECT force_logout FROM employees WHERE id = '$current_user_id'");
+    if ($chk_res && $user_chk = mysqli_fetch_assoc($chk_res)) {
+        if ($user_chk['force_logout'] == 1) {
+            
+            // 🕒 Auto Attendance Check-Out Time Record
+            $today          = date("Y-m-d");
+            $check_out_time = date("H:i:s");
+
+            $att_res = mysqli_query($conn, "SELECT check_in FROM attendance WHERE employee_id = '$current_user_id' AND attendance_date = '$today'");
+            if ($att_res && mysqli_num_rows($att_res) > 0) {
+                $att_data = mysqli_fetch_assoc($att_res);
+                $check_in_time = $att_data['check_in'];
+
+                if (!empty($check_in_time)) {
+                    $time1 = new DateTime($check_in_time);
+                    $time2 = new DateTime($check_out_time);
+                    $interval = $time1->diff($time2);
+                    $working_hours = $interval->format('%h hrs %i mins');
+                } else {
+                    $working_hours = "N/A";
+                }
+
+                $remarks = "Force Logged Out by Admin. Total Shift: " . $working_hours;
+                mysqli_query($conn, "UPDATE attendance SET check_out = '$check_out_time', remarks = '$remarks' WHERE employee_id = '$current_user_id' AND attendance_date = '$today'");
+            }
+
+            // Reset Flag and Destroy Session
+            mysqli_query($conn, "UPDATE employees SET force_logout = 0 WHERE id = '$current_user_id'");
+            
+            session_unset();
+            session_destroy();
+
+            header("Location: /vortex_wms/login.php?error=forced_logout");
+            exit();
+        }
+    }
+}
+?>
 <!DOCTYPE html>
 <html lang="en">
 

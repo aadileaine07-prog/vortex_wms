@@ -161,6 +161,11 @@ include "../../../includes/sidebar.php";
                                 </div>
 
                                 <div class="col-md-4 mb-3">
+<label class="form-label">Email</label>
+    <input type="email" name="email" class="form-control">
+</div>
+
+                                <div class="col-md-4 mb-3">
                                     <label class="form-label">Password <span class="text-danger">*</span></label>
                                     <input type="password" name="password" class="form-control" required>
                                 </div>
