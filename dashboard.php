@@ -1,466 +1,313 @@
 <?php
-session_start();
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
 
 if (!isset($_SESSION['employee_id'])) {
     header("Location: login.php");
     exit();
 }
 
-require_once "config/database.php";
+$projectRoot = __DIR__;
+require_once $projectRoot . "/config/database.php";
 
-/* ===============================
-   Fetch Dynamic Database Counts
-================================ */
+/* ==========================================================================
+   1. LIVE METRICS & DYNAMIC AGGREGATES
+   ========================================================================== */
 
-// 1. Inbound Orders Count
-$inboundCount = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) total FROM asn"))['total'] ?? 0;
+function getMetricCount($conn, $sql, $default = 0) {
+    if (!$conn) return $default;
+    try {
+        $res = @mysqli_query($conn, $sql);
+        if ($res && $r = @mysqli_fetch_array($res)) {
+            return $r[0] !== null ? (int)$r[0] : $default;
+        }
+    } catch (\Throwable $e) {
+        return $default;
+    }
+    return $default;
+}
 
-// 2. Inventory Products Count
-$inventoryCount = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) total FROM products"))['total'] ?? 0;
+// 1. Inbound Orders Count (Purchase Orders / ASN)
+$inboundCount = getMetricCount($conn, "SELECT COUNT(*) FROM purchase_orders");
+if ($inboundCount === 0) {
+    $inboundCount = getMetricCount($conn, "SELECT COUNT(*) FROM asn");
+}
 
-// 3. Outbound Shipments Count
-$outboundCount = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) total FROM sales_orders"))['total'] ?? 0;
+// 2. Total Catalog Master Products
+$inventoryCount = getMetricCount($conn, "SELECT COUNT(*) FROM products");
 
-// 4. Employees/Users Count
-$userCount = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) total FROM employees"))['total'] ?? 0;
+// 3. Outbound Shipments Count (Sales Orders)
+$outboundCount = getMetricCount($conn, "SELECT COUNT(*) FROM sales_orders");
 
-// 5. Low Stock Alert Query (Threshold <= 10)
-$lowStockQuery = "
-    SELECT p.product_code, p.product_name, COALESCE(SUM(i.available_qty), 0) as total_stock 
-    FROM products p 
-    LEFT JOIN inventory i ON p.id = i.product_id 
-    GROUP BY p.id 
-    HAVING total_stock <= 10 
-    LIMIT 5
-";
-$lowStockResult = mysqli_query($conn, $lowStockQuery);
+// 4. System Employees / Active Users
+$userCount = getMetricCount($conn, "SELECT COUNT(*) FROM employees WHERE LOWER(status) = 'active' OR status = '1'");
+if ($userCount === 0) {
+    $userCount = getMetricCount($conn, "SELECT COUNT(*) FROM employees");
+}
 
+// 5. Total Inventory Quantity & Active Storage Bins
+$totalStockUnits = getMetricCount($conn, "SELECT IFNULL(SUM(available_qty), 0) FROM inventory");
+$totalActiveBins = getMetricCount($conn, "SELECT COUNT(*) FROM bin_locations WHERE status = 'Active'");
+
+// 6. Low Stock Threshold Query (Available Qty <= 10)
+$lowStockItems = [];
+try {
+    $lowStockQuery = "
+        SELECT p.product_name, COALESCE(p.sku, p.product_code, 'SKU-00') AS sku_code, i.bin_location, i.available_qty 
+        FROM inventory i
+        LEFT JOIN products p ON p.id = i.product_id 
+        WHERE i.available_qty <= 10 
+        ORDER BY i.available_qty ASC 
+        LIMIT 5
+    ";
+    $lowStockRes = @mysqli_query($conn, $lowStockQuery);
+    if ($lowStockRes) {
+        while ($row = mysqli_fetch_assoc($lowStockRes)) {
+            $lowStockItems[] = $row;
+        }
+    }
+} catch (\Throwable $e) {}
+
+// Include Master Header (Automatically loads Navbar, Sidebar & Core Layout)
+include $projectRoot . "/includes/header.php";
 ?>
-<!DOCTYPE html>
-<html lang="en">
 
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VORTEX WMS Dashboard</title>
+<div class="container-fluid p-0">
 
-    <!-- Google Fonts & Bootstrap 5 -->
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="assets/css/sidebar.css">
+    <!-- Top Welcome Banner & Actions -->
+    <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
+        <div>
+            <h2 class="fw-bold text-dark mb-1">
+                Welcome back, <?= htmlspecialchars($_SESSION['full_name'] ?? 'Super Admin'); ?> 👋
+            </h2>
+            <p class="text-muted mb-0">Overview of warehouse operational activities, live inventory & orders</p>
+        </div>
+        <div class="d-flex gap-2 align-items-center flex-wrap">
+            <a href="modules/reports/dashboard.php" class="btn btn-outline-primary fw-bold rounded-pill px-3 shadow-sm">
+                <i class="fa-solid fa-chart-line me-1"></i> Executive Reports
+            </a>
+            <button onclick="window.location.reload();" class="btn btn-primary fw-bold rounded-pill px-4 shadow-sm">
+                <i class="fa-solid fa-arrows-rotate me-1"></i> Sync Live
+            </button>
+        </div>
+    </div>
 
-    <!-- Chart.js CDN -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
-    <style>
-        body {
-            font-family: 'Plus Jakarta Sans', sans-serif;
-            background-color: #f1f5f9;
-            color: #334155;
-        }
-
-        .main-wrapper {
-            margin-left: 270px;
-            transition: all 0.3s ease;
-        }
-
-        /* Clean Enterprise Top Navbar */
-        .top-navbar {
-            background: #0f172a !important;
-            border-bottom: 1px solid #1e293b;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-        }
-
-        .brand-logo-icon {
-            width: 38px;
-            height: 38px;
-            background: #2563eb;
-            color: #ffffff;
-            border-radius: 10px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 1.1rem;
-        }
-
-        .brand-title {
-            font-size: 1.15rem;
-            letter-spacing: 0.5px;
-            color: #ffffff;
-        }
-
-        .brand-subtitle {
-            font-size: 0.65rem;
-            letter-spacing: 1px;
-            color: #94a3b8;
-        }
-
-        .user-profile-badge {
-            background: #1e293b;
-            border: 1px solid #334155;
-        }
-
-        .profile-avatar {
-            width: 32px;
-            height: 32px;
-            background: #3b82f6;
-            color: #ffffff;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 0.85rem;
-        }
-
-        .bg-role-badge {
-            background: #334155;
-            color: #e2e8f0;
-            font-size: 0.7rem;
-        }
-
-        .btn-icon-nav {
-            width: 38px;
-            height: 38px;
-            border-radius: 8px;
-            background: #1e293b;
-            border: 1px solid #334155;
-            color: #cbd5e1;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: all 0.2s ease;
-            text-decoration: none;
-        }
-
-        .btn-icon-nav:hover {
-            background: #334155;
-            color: #ffffff;
-        }
-
-        .btn-logout {
-            background: #dc2626;
-            color: #ffffff;
-            border: none;
-            transition: all 0.2s ease;
-        }
-
-        .btn-logout:hover {
-            background: #b91c1c;
-            color: #ffffff;
-        }
-
-        /* Clean Professional Welcome Heading */
-        .dashboard-heading {
-            font-size: 1.75rem;
-            font-weight: 700;
-            color: #0f172a;
-        }
-
-        /* Stat Cards Styling */
-        .stat-card {
-            border: 1px solid #e2e8f0;
-            border-radius: 12px;
-            background: #ffffff;
-            transition: all 0.2s ease;
-            text-decoration: none;
-            color: inherit;
-        }
-
-        .stat-card:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.05) !important;
-            border-color: #cbd5e1;
-        }
-
-        .icon-shape {
-            width: 52px;
-            height: 52px;
-            border-radius: 10px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 1.3rem;
-        }
-
-        .bg-inbound { background: #eff6ff; color: #1d4ed8; }
-        .bg-inventory { background: #f0fdf4; color: #15803d; }
-        .bg-outbound { background: #fffbe3; color: #b45309; }
-        .bg-users { background: #faf5ff; color: #7e22ce; }
-
-        .btn-action {
-            border-radius: 8px;
-            padding: 10px 14px;
-            font-weight: 600;
-            font-size: 0.9rem;
-            transition: all 0.2s ease;
-        }
-
-        @media (max-width: 992px) {
-            .main-wrapper { margin-left: 0; }
-        }
-    </style>
-</head>
-
-<body>
-
-    <?php include "includes/sidebar.php"; ?>
-
-    <div class="main-wrapper">
-
-        <!-- Clean Top Navigation Bar -->
-        <nav class="navbar navbar-expand-lg top-navbar px-4 py-2 sticky-top">
-            <div class="container-fluid d-flex justify-content-between align-items-center">
-                
-                <!-- Left Brand Logo & Title -->
-                <a class="navbar-brand d-flex align-items-center gap-2 m-0 text-decoration-none" href="dashboard.php">
-                    <div class="brand-logo-icon">
-                        <i class="fa-solid fa-boxes-stacked"></i>
-                    </div>
-                    <div class="d-flex flex-column">
-                        <span class="brand-title fw-bold">VORTEX WMS</span>
-                        <span class="brand-subtitle font-monospace">ENTERPRISE WAREHOUSE SYSTEM</span>
-                    </div>
-                </a>
-
-                <!-- Right User Profile & Actions -->
-                <div class="d-flex align-items-center gap-3">
-                    
-                    <!-- User Status & ID Badge -->
-                    <div class="user-profile-badge d-none d-md-flex align-items-center gap-2 px-3 py-1.5 rounded-3">
-                        <div class="profile-avatar fw-bold">
-                            <?= strtoupper(substr($_SESSION['full_name'] ?? 'U', 0, 1)); ?>
+    <!-- 1. METRIC STAT CARDS -->
+    <div class="row g-4 mb-4">
+        
+        <!-- Inbound Card -->
+        <div class="col-xl-3 col-md-6">
+            <a href="modules/purchase_orders/index.php" class="text-decoration-none">
+                <div class="card stat-card p-3 h-100 shadow-sm border-0 rounded-4 bg-white border-start border-4 border-primary hover-card">
+                    <div class="d-flex align-items-center justify-content-between">
+                        <div>
+                            <span class="text-muted fw-semibold small text-uppercase">Inbound Orders</span>
+                            <h2 class="fw-bold my-1 text-dark"><?= number_format($inboundCount); ?></h2>
+                            <span class="badge bg-primary-subtle text-primary border border-primary-subtle fw-normal">Purchase Orders</span>
                         </div>
-                        <div class="text-start pe-2">
-                            <div class="fw-semibold text-white small leading-none"><?= htmlspecialchars($_SESSION['full_name'] ?? 'User'); ?></div>
-                            <small class="text-slate-400 font-monospace text-muted" style="font-size: 0.75rem;">ID: <?= htmlspecialchars($_SESSION['employee_id']); ?></small>
-                        </div>
-                        <span class="badge bg-role-badge text-uppercase px-2 py-1 rounded">
-                            <?= htmlspecialchars($_SESSION['role'] ?? 'User'); ?>
-                        </span>
-                    </div>
-
-                    <!-- Notification Link -->
-                    <a href="modules/notifications/index.php" class="btn-icon-nav" title="Notifications">
-                        <i class="fa-regular fa-bell"></i>
-                    </a>
-
-                    <!-- Logout Button -->
-                    <a href="logout.php" class="btn btn-logout btn-sm d-flex align-items-center gap-2 px-3 py-2 rounded-2 text-decoration-none">
-                        <i class="fa-solid fa-right-from-bracket"></i>
-                        <span class="d-none d-sm-inline fw-semibold">Logout</span>
-                    </a>
-
-                </div>
-
-            </div>
-        </nav>
-
-        <!-- Main Dashboard Content -->
-        <div class="container-fluid p-4">
-
-            <!-- Professional Welcome Banner -->
-            <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
-                <div>
-                    <h2 class="dashboard-heading mb-1">
-                        Welcome back, <?= htmlspecialchars($_SESSION['full_name'] ?? 'Employee'); ?> 👋
-                    </h2>
-                    <p class="text-muted mb-0">Overview of operational activities and inventory metrics.</p>
-                </div>
-                <div>
-                    <a href="modules/reports/dashboard.php" class="btn btn-dark btn-action shadow-sm">
-                        <i class="fa-solid fa-chart-line me-2"></i> View System Reports
-                    </a>
-                </div>
-            </div>
-
-            <!-- Standard Metric Cards -->
-            <div class="row g-4 mb-4">
-
-                <!-- Inbound Card -->
-                <div class="col-xl-3 col-md-6">
-                    <a href="modules/inbound/dashboard.php" class="card stat-card p-3 h-100">
-                        <div class="d-flex align-items-center justify-content-between">
-                            <div>
-                                <span class="text-muted fw-semibold small text-uppercase">Inbound Orders</span>
-                                <h2 class="fw-bold my-1 text-dark"><?= number_format($inboundCount); ?></h2>
-                                <span class="badge bg-primary-subtle text-primary border border-primary-subtle fw-normal">Active Orders</span>
-                            </div>
-                            <div class="icon-shape bg-inbound">
-                                <i class="fa-solid fa-truck-ramp-box"></i>
-                            </div>
-                        </div>
-                    </a>
-                </div>
-
-                <!-- Inventory Card -->
-                <div class="col-xl-3 col-md-6">
-                    <a href="modules/inventory/index.php" class="card stat-card p-3 h-100">
-                        <div class="d-flex align-items-center justify-content-between">
-                            <div>
-                                <span class="text-muted fw-semibold small text-uppercase">Total Inventory</span>
-                                <h2 class="fw-bold my-1 text-dark"><?= number_format($inventoryCount); ?></h2>
-                                <span class="badge bg-success-subtle text-success border border-success-subtle fw-normal">Total SKUs</span>
-                            </div>
-                            <div class="icon-shape bg-inventory">
-                                <i class="fa-solid fa-boxes-stacked"></i>
-                            </div>
-                        </div>
-                    </a>
-                </div>
-
-                <!-- Outbound Card -->
-                <div class="col-xl-3 col-md-6">
-                    <a href="modules/outbound/sales_order/index.php" class="card stat-card p-3 h-100">
-                        <div class="d-flex align-items-center justify-content-between">
-                            <div>
-                                <span class="text-muted fw-semibold small text-uppercase">Outbound Orders</span>
-                                <h2 class="fw-bold my-1 text-dark"><?= number_format($outboundCount); ?></h2>
-                                <span class="badge bg-warning-subtle text-warning border border-warning-subtle fw-normal">Dispatches</span>
-                            </div>
-                            <div class="icon-shape bg-outbound">
-                                <i class="fa-solid fa-dolly"></i>
-                            </div>
-                        </div>
-                    </a>
-                </div>
-
-                <!-- Users Card -->
-                <div class="col-xl-3 col-md-6">
-                    <a href="modules/hr/employees/index.php" class="card stat-card p-3 h-100">
-                        <div class="d-flex align-items-center justify-content-between">
-                            <div>
-                                <span class="text-muted fw-semibold small text-uppercase">System Users</span>
-                                <h2 class="fw-bold my-1 text-dark"><?= number_format($userCount); ?></h2>
-                                <span class="badge bg-purple-subtle text-purple border border-purple-subtle fw-normal">Active Team</span>
-                            </div>
-                            <div class="icon-shape bg-users">
-                                <i class="fa-solid fa-users-gear"></i>
-                            </div>
-                        </div>
-                    </a>
-                </div>
-
-            </div>
-
-            <!-- Analytics Chart & Low Stock Warnings -->
-            <div class="row g-4 mb-4">
-                
-                <!-- Stock Analytics Graph -->
-                <div class="col-lg-8">
-                    <div class="card border-0 shadow-sm rounded-3 h-100">
-                        <div class="card-body p-4">
-                            <h5 class="fw-bold mb-3 text-dark"><i class="fa-solid fa-chart-area text-primary me-2"></i>Inbound vs Outbound Monthly Flow</h5>
-                            <canvas id="wmsChart" height="110"></canvas>
+                        <div class="p-3 bg-primary bg-opacity-10 text-primary rounded-4">
+                            <i class="fa-solid fa-truck-ramp-box fa-2x"></i>
                         </div>
                     </div>
                 </div>
+            </a>
+        </div>
 
-                <!-- Low Stock Warning Section -->
-                <div class="col-lg-4">
-                    <div class="card border-0 shadow-sm rounded-3 h-100">
-                        <div class="card-body p-4">
-                            <div class="d-flex justify-content-between align-items-center mb-3">
-                                <h5 class="fw-bold mb-0 text-dark"><i class="fa-solid fa-triangle-exclamation text-danger me-2"></i>Low Stock Alert</h5>
-                                <span class="badge bg-danger text-white">Reorder Limit</span>
-                            </div>
-
-                            <div class="list-group list-group-flush">
-                                <?php if ($lowStockResult && mysqli_num_rows($lowStockResult) > 0): ?>
-                                    <?php while ($row = mysqli_fetch_assoc($lowStockResult)): ?>
-                                        <div class="list-group-item px-0 d-flex justify-content-between align-items-center border-bottom">
-                                            <div>
-                                                <strong class="d-block text-dark small"><?= htmlspecialchars($row['product_name']); ?></strong>
-                                                <small class="text-muted font-monospace"><?= htmlspecialchars($row['product_code']); ?></small>
-                                            </div>
-                                            <span class="badge bg-danger-subtle text-danger border border-danger-subtle fs-6"><?= $row['total_stock']; ?> Units</span>
-                                        </div>
-                                    <?php endwhile; ?>
-                                <?php else: ?>
-                                    <div class="text-center py-4 text-muted">
-                                        <i class="fa-solid fa-circle-check text-success fs-3 mb-2 d-block"></i>
-                                        All product stock levels are optimal.
-                                    </div>
-                                <?php endif; ?>
-                            </div>
+        <!-- Inventory Card -->
+        <div class="col-xl-3 col-md-6">
+            <a href="modules/inventory/index.php" class="text-decoration-none">
+                <div class="card stat-card p-3 h-100 shadow-sm border-0 rounded-4 bg-white border-start border-4 border-success hover-card">
+                    <div class="d-flex align-items-center justify-content-between">
+                        <div>
+                            <span class="text-muted fw-semibold small text-uppercase">Total Inventory</span>
+                            <h2 class="fw-bold my-1 text-dark"><?= number_format($totalStockUnits); ?></h2>
+                            <span class="badge bg-success-subtle text-success border border-success-subtle fw-normal"><?= number_format($inventoryCount); ?> Master SKUs</span>
+                        </div>
+                        <div class="p-3 bg-success bg-opacity-10 text-success rounded-4">
+                            <i class="fa-solid fa-boxes-stacked fa-2x"></i>
                         </div>
                     </div>
                 </div>
+            </a>
+        </div>
 
-            </div>
-
-            <!-- Quick Operations Shortcuts -->
-            <div class="card border-0 shadow-sm rounded-3">
-                <div class="card-body p-4">
-                    <h5 class="fw-bold mb-3 text-dark"><i class="fa-solid fa-bolt me-2 text-primary"></i> Quick Access Shortcuts</h5>
-                    <div class="row g-3">
-                        <div class="col-md-3 col-6">
-                            <a href="modules/inventory/index.php" class="btn btn-outline-primary btn-action w-100 text-start">
-                                <i class="fa-solid fa-box me-2"></i> Manage Stock
-                            </a>
+        <!-- Outbound Card -->
+        <div class="col-xl-3 col-md-6">
+            <a href="modules/outbound/sales_order/index.php" class="text-decoration-none">
+                <div class="card stat-card p-3 h-100 shadow-sm border-0 rounded-4 bg-white border-start border-4 border-warning hover-card">
+                    <div class="d-flex align-items-center justify-content-between">
+                        <div>
+                            <span class="text-muted fw-semibold small text-uppercase">Outbound Orders</span>
+                            <h2 class="fw-bold my-1 text-dark"><?= number_format($outboundCount); ?></h2>
+                            <span class="badge bg-warning-subtle text-warning border border-warning-subtle fw-normal">Sales Dispatches</span>
                         </div>
-                        <div class="col-md-3 col-6">
-                            <a href="modules/inbound/dashboard.php" class="btn btn-outline-success btn-action w-100 text-start">
-                                <i class="fa-solid fa-truck-loading me-2"></i> Inbound Orders
-                            </a>
-                        </div>
-                        <div class="col-md-3 col-6">
-                            <a href="modules/outbound/sales_order/index.php" class="btn btn-outline-warning btn-action w-100 text-start">
-                                <i class="fa-solid fa-paper-plane me-2"></i> Sales Orders
-                            </a>
-                        </div>
-                        <div class="col-md-3 col-6">
-                            <a href="modules/hr/employees/index.php" class="btn btn-outline-danger btn-action w-100 text-start">
-                                <i class="fa-solid fa-user-plus me-2"></i> Employee Master
-                            </a>
+                        <div class="p-3 bg-warning bg-opacity-10 text-warning rounded-4">
+                            <i class="fa-solid fa-dolly fa-2x"></i>
                         </div>
                     </div>
                 </div>
-            </div>
+            </a>
+        </div>
 
-        </div> <!-- /.container-fluid -->
+        <!-- Active Storage Bins Card -->
+        <div class="col-xl-3 col-md-6">
+            <a href="modules/masters/bin_locations/index.php" class="text-decoration-none">
+                <div class="card stat-card p-3 h-100 shadow-sm border-0 rounded-4 bg-white border-start border-4 border-info hover-card">
+                    <div class="d-flex align-items-center justify-content-between">
+                        <div>
+                            <span class="text-muted fw-semibold small text-uppercase">Active Storage Bins</span>
+                            <h2 class="fw-bold my-1 text-dark"><?= number_format($totalActiveBins); ?></h2>
+                            <span class="badge bg-info-subtle text-info border border-info-subtle fw-normal"><?= $userCount; ?> Team Members</span>
+                        </div>
+                        <div class="p-3 bg-info bg-opacity-10 text-info rounded-4">
+                            <i class="fa-solid fa-location-dot fa-2x"></i>
+                        </div>
+                    </div>
+                </div>
+            </a>
+        </div>
 
     </div>
 
-    <!-- Chart.js Script Configuration -->
-    <script>
-        document.addEventListener("DOMContentLoaded", function () {
-            const ctx = document.getElementById('wmsChart').getContext('2d');
-            new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug'],
-                    datasets: [
-                        {
-                            label: 'Inbound Orders',
-                            data: [12, 19, 15, 25, 22, 30, 28, <?= $inboundCount; ?>],
-                            borderColor: '#2563eb',
-                            backgroundColor: 'rgba(37, 99, 235, 0.05)',
-                            fill: true,
-                            tension: 0.3
-                        },
-                        {
-                            label: 'Outbound Shipments',
-                            data: [8, 12, 18, 20, 15, 25, 24, <?= $outboundCount; ?>],
-                            borderColor: '#d97706',
-                            backgroundColor: 'rgba(217, 119, 6, 0.05)',
-                            fill: true,
-                            tension: 0.3
-                        }
-                    ]
-                },
-                options: {
-                    responsive: true,
-                    plugins: {
-                        legend: { position: 'top' }
-                    },
-                    scales: {
-                        y: { beginAtZero: true }
-                    }
-                }
-            });
-        });
-    </script>
+    <!-- 2. ANALYTICS CHART & LOW STOCK ALERT SECTION -->
+    <div class="row g-4 mb-4">
+        
+        <!-- Monthly Inbound vs Outbound Flow Graph -->
+        <div class="col-lg-8">
+            <div class="card border-0 shadow-sm rounded-4 bg-white h-100">
+                <div class="card-header bg-white border-0 pt-4 px-4 pb-0 d-flex justify-content-between align-items-center">
+                    <h5 class="fw-bold mb-0 text-dark">
+                        <i class="fa-solid fa-chart-area text-primary me-2"></i>Inbound vs Outbound Monthly Flow
+                    </h5>
+                    <span class="badge bg-light text-secondary border">Real-Time Sync</span>
+                </div>
+                <div class="card-body p-4">
+                    <canvas id="wmsChart" style="max-height: 270px;"></canvas>
+                </div>
+            </div>
+        </div>
 
-</body>
-</html>
+        <!-- Low Stock Warning Box -->
+        <div class="col-lg-4">
+            <div class="card border-0 shadow-sm rounded-4 bg-white h-100">
+                <div class="card-header bg-white border-0 pt-4 px-4 pb-0 d-flex justify-content-between align-items-center">
+                    <h5 class="fw-bold mb-0 text-dark">
+                        <i class="fa-solid fa-triangle-exclamation text-danger me-2"></i>Low Stock Alert
+                    </h5>
+                    <span class="badge bg-danger rounded-pill">Reorder Threshold</span>
+                </div>
+                <div class="card-body p-4">
+                    <div class="list-group list-group-flush">
+                        <?php if (!empty($lowStockItems)): ?>
+                            <?php foreach ($lowStockItems as $item): ?>
+                                <div class="list-group-item px-0 py-2 d-flex justify-content-between align-items-center border-bottom">
+                                    <div>
+                                        <strong class="d-block text-dark small"><?= htmlspecialchars($item['product_name'] ?? 'Product'); ?></strong>
+                                        <small class="text-muted font-monospace"><?= htmlspecialchars($item['sku_code']); ?> | Bin: <?= htmlspecialchars($item['bin_location'] ?? 'L0-A1'); ?></small>
+                                    </div>
+                                    <span class="badge <?= ($item['available_qty'] == 0) ? 'bg-danger' : 'bg-warning-subtle text-warning border border-warning-subtle'; ?> px-2 py-1 rounded-pill">
+                                        <?= (int)$item['available_qty']; ?> Units
+                                    </span>
+                                </div>
+                            <?php endforeach; ?>
+                        <?php else: ?>
+                            <div class="text-center py-4 text-muted">
+                                <i class="fa-solid fa-circle-check text-success fs-2 mb-2 d-block opacity-75"></i>
+                                All inventory stock levels are optimal.
+                            </div>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- 3. WORKFLOW SHORTCUTS -->
+    <div class="card border-0 shadow-sm rounded-4 bg-white mb-4">
+        <div class="card-body p-4">
+            <h5 class="fw-bold mb-3 text-dark"><i class="fa-solid fa-bolt me-2 text-warning"></i> Quick Operations Shortcuts</h5>
+            <div class="row g-3">
+                <div class="col-md-3 col-6">
+                    <a href="modules/inventory/index.php" class="btn btn-outline-primary btn-action w-100 text-start py-3 rounded-3">
+                        <i class="fa-solid fa-box me-2 fs-5"></i> Manage Inventory
+                    </a>
+                </div>
+                <div class="col-md-3 col-6">
+                    <a href="modules/purchase_orders/index.php" class="btn btn-outline-success btn-action w-100 text-start py-3 rounded-3">
+                        <i class="fa-solid fa-truck-ramp-box me-2 fs-5"></i> Inbound POs
+                    </a>
+                </div>
+                <div class="col-md-3 col-6">
+                    <a href="modules/outbound/sales_order/index.php" class="btn btn-outline-warning btn-action w-100 text-start py-3 rounded-3">
+                        <i class="fa-solid fa-paper-plane me-2 fs-5"></i> Sales Orders
+                    </a>
+                </div>
+                <div class="col-md-3 col-6">
+                    <a href="modules/masters/bin_locations/bulk_add.php" class="btn btn-outline-danger btn-action w-100 text-start py-3 rounded-3">
+                        <i class="fa-solid fa-layer-group me-2 fs-5"></i> Bulk Generate Bins
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<!-- Chart.js Configuration -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    const ctx = document.getElementById('wmsChart');
+    if (ctx) {
+        new Chart(ctx.getContext('2d'), {
+            type: 'line',
+            data: {
+                labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug'],
+                datasets: [
+                    {
+                        label: 'Inbound Orders',
+                        data: [12, 19, 15, 25, 22, 30, 28, <?= $inboundCount; ?>],
+                        borderColor: '#2563eb',
+                        backgroundColor: 'rgba(37, 99, 235, 0.08)',
+                        fill: true,
+                        tension: 0.35
+                    },
+                    {
+                        label: 'Outbound Shipments',
+                        data: [8, 12, 18, 20, 15, 25, 24, <?= $outboundCount; ?>],
+                        borderColor: '#d97706',
+                        backgroundColor: 'rgba(217, 119, 6, 0.08)',
+                        fill: true,
+                        tension: 0.35
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: 'top', labels: { boxWidth: 12 } }
+                },
+                scales: {
+                    y: { beginAtZero: true, grid: { color: 'rgba(0,0,0,0.05)' } },
+                    x: { grid: { display: false } }
+                }
+            }
+        });
+    }
+});
+</script>
+
+<style>
+.hover-card {
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.hover-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 8px 20px rgba(0,0,0,0.08) !important;
+}
+</style>
+
+<?php include $projectRoot . "/includes/footer.php"; ?>

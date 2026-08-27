@@ -8,7 +8,7 @@ $current_page = $_SERVER['REQUEST_URI'] ?? '';
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
 
 <style>
-/* 1. Sidebar Container Lock */
+/* 1. Sidebar Container */
 #vortexSidebar {
     position: fixed !important;
     top: 0 !important;
@@ -21,22 +21,23 @@ $current_page = $_SERVER['REQUEST_URI'] ?? '';
     z-index: 1050 !important;
     background: #0f172a !important;
     border-right: 1px solid rgba(255, 255, 255, 0.08);
+    transition: all 0.3s ease;
 }
 
 #vortexSidebar::-webkit-scrollbar {
-    width: 5px;
+    width: 4px;
 }
 #vortexSidebar::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.15);
     border-radius: 4px;
 }
 
-/* 2. Menu Link Styling */
+/* 2. Menu Links */
 .sidebar-link {
     display: flex !important;
     align-items: center !important;
     gap: 12px;
-    padding: 10px 14px;
+    padding: 9px 14px;
     color: #94a3b8 !important;
     text-decoration: none !important;
     border-radius: 8px;
@@ -56,7 +57,7 @@ $current_page = $_SERVER['REQUEST_URI'] ?? '';
     font-weight: 600;
 }
 
-/* 3. Submenu & Nested Lists */
+/* 3. Submenu Accordions */
 .sidebar .submenu {
     display: none;
     list-style: none !important;
@@ -69,18 +70,6 @@ $current_page = $_SERVER['REQUEST_URI'] ?? '';
     display: block !important;
 }
 
-.sidebar .nested-list {
-    list-style: none !important;
-    padding: 4px 0 4px 10px !important;
-    margin: 4px 0 !important;
-    display: none;
-    background: rgba(0, 0, 0, 0.35) !important;
-    border-radius: 6px;
-}
-.sidebar .nested-item.open > .nested-list {
-    display: block !important;
-}
-
 .sidebar .sub-link {
     display: flex !important;
     align-items: center !important;
@@ -90,7 +79,6 @@ $current_page = $_SERVER['REQUEST_URI'] ?? '';
     text-decoration: none !important;
     border-radius: 6px;
     transition: background 0.2s ease, color 0.2s ease;
-    cursor: pointer;
 }
 .sidebar .sub-link:hover {
     background: rgba(255, 255, 255, 0.06) !important;
@@ -101,22 +89,20 @@ $current_page = $_SERVER['REQUEST_URI'] ?? '';
     font-weight: 600;
 }
 
-/* Arrows */
-.sidebar .arrow-icon,
-.sidebar .n-arrow {
+/* Chevron Rotation */
+.sidebar .arrow-icon {
     font-size: 10px;
     transition: transform 0.25s ease;
     pointer-events: none;
 }
-.sidebar .has-submenu.open > .submenu-toggle .arrow-icon,
-.sidebar .nested-item.open > .nested-btn .n-arrow {
+.sidebar .has-submenu.open > .submenu-toggle .arrow-icon {
     transform: rotate(90deg);
 }
 </style>
 
 <div class="sidebar" id="vortexSidebar">
 
-    <!-- Logo Area -->
+    <!-- Brand Logo -->
     <div class="logo-area p-3 text-center border-bottom border-secondary border-opacity-25">
         <a href="/vortex_wms/dashboard.php">
             <img src="/vortex_wms/assets/images/logo.png" alt="VORTEX WMS" style="max-height: 38px;" onerror="this.src='/vortex_wms/assets/img/logo.png'">
@@ -145,85 +131,22 @@ $current_page = $_SERVER['REQUEST_URI'] ?? '';
                 <i class="fa-solid fa-chevron-right arrow-icon"></i>
             </a>
             <ul class="submenu">
-                <li><a href="/vortex_wms/modules/inventory/index.php" class="sub-link <?= (basename($current_page) == 'index.php' && strpos($current_page, '/inventory/') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-box me-2"></i>Inventory List</a></li>
-                <li><a href="/vortex_wms/modules/inventory/item_identification/index.php" class="sub-link <?= (strpos($current_page, 'item_identification') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-camera me-2 text-primary"></i>Item Identification</a></li>
-
-                <!-- Nested: Locations & Stock -->
-                <li class="nested-item <?= (strpos($current_page, '/locations/') !== false || strpos($current_page, '/stock/') !== false || strpos($current_page, 'bin_map.php') !== false || strpos($current_page, '/transfer/') !== false || strpos($current_page, '/adjustment/') !== false) ? 'open' : ''; ?>">
-                    <a href="javascript:void(0);" class="sub-link nested-btn justify-content-between">
-                        <span><i class="fa-solid fa-warehouse me-2 text-info"></i>Locations & Stock</span>
-                        <i class="fa-solid fa-chevron-right n-arrow"></i>
-                    </a>
-                    <ul class="nested-list">
-                        <li><a href="/vortex_wms/modules/inventory/locations/inventory_view.php" class="sub-link <?= (strpos($current_page, 'inventory_view.php') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-list-ul me-2"></i>Inventory View</a></li>
-                        <li><a href="/vortex_wms/modules/inventory/locations/location_view.php" class="sub-link <?= (strpos($current_page, 'location_view.php') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-map-location-dot me-2"></i>Location View</a></li>
-                        <li><a href="/vortex_wms/modules/inventory/bin_map.php" class="sub-link <?= (strpos($current_page, 'bin_map.php') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-border-all me-2 text-success"></i>Visual Bin Map</a></li>
-                        <li><a href="/vortex_wms/modules/inventory/stock/index.php" class="sub-link <?= (strpos($current_page, '/stock/') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-cubes me-2"></i>Stock Levels</a></li>
-                        <li><a href="/vortex_wms/modules/inventory/locations/item_details.php" class="sub-link <?= (strpos($current_page, 'item_details.php') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-circle-info me-2"></i>Item Details</a></li>
-                        <li><a href="/vortex_wms/modules/inventory/locations/item_mapping.php" class="sub-link <?= (strpos($current_page, 'item_mapping.php') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-arrows-split-up-and-left me-2"></i>Location Mapping</a></li>
-                        <li><a href="/vortex_wms/modules/inventory/transfer/index.php" class="sub-link <?= (strpos($current_page, '/transfer/') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-right-left me-2"></i>Stock Transfer</a></li>
-                        <li><a href="/vortex_wms/modules/inventory/adjustment/index.php" class="sub-link <?= (strpos($current_page, '/adjustment/') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-sliders me-2"></i>Stock Adjustment</a></li>
-                        <li><a href="/vortex_wms/modules/inventory/locations/manual_update.php" class="sub-link <?= (strpos($current_page, 'manual_update.php') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-pen-to-square me-2"></i>Manual Stock Update</a></li>
-                    </ul>
-                </li>
-
-                <!-- Nested: Audit -->
-                <li class="nested-item <?= (strpos($current_page, '/inventory/audit/') !== false) ? 'open' : ''; ?>">
-                    <a href="javascript:void(0);" class="sub-link nested-btn justify-content-between">
-                        <span><i class="fa-solid fa-clipboard-check me-2 text-primary"></i>Audit</span>
-                        <i class="fa-solid fa-chevron-right n-arrow"></i>
-                    </a>
-                    <ul class="nested-list">
-                        <li><a href="/vortex_wms/modules/inventory/audit/summary.php" class="sub-link <?= (strpos($current_page, 'summary.php') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-table-list me-2"></i>Audit Summary</a></li>
-                        <li><a href="/vortex_wms/modules/inventory/audit/raise_visibility.php" class="sub-link <?= (strpos($current_page, 'raise_visibility.php') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-flag me-2"></i>Raise Audit Visibility</a></li>
-                    </ul>
-                </li>
-
-                <!-- Nested: Migrations -->
-                <li class="nested-item <?= (strpos($current_page, '/inventory/migrations/') !== false) ? 'open' : ''; ?>">
-                    <a href="javascript:void(0);" class="sub-link nested-btn justify-content-between">
-                        <span><i class="fa-solid fa-truck-moving me-2 text-warning"></i>Migrations</span>
-                        <i class="fa-solid fa-chevron-right n-arrow"></i>
-                    </a>
-                    <ul class="nested-list">
-                        <li><a href="/vortex_wms/modules/inventory/migrations/spr_tasks.php" class="sub-link <?= (strpos($current_page, 'spr_tasks.php') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-list-check me-2"></i>SPR Tasks</a></li>
-                        <li><a href="/vortex_wms/modules/inventory/migrations/self_serve.php" class="sub-link <?= (strpos($current_page, 'self_serve.php') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-sliders me-2"></i>Migration Self Serve</a></li>
-                    </ul>
-                </li>
-
-                <!-- Nested: Bad Stocks -->
-                <li class="nested-item <?= (strpos($current_page, '/bad_stocks/') !== false) ? 'open' : ''; ?>">
-                    <a href="javascript:void(0);" class="sub-link nested-btn justify-content-between">
-                        <span><i class="fa-solid fa-triangle-exclamation me-2 text-danger"></i>Bad Stocks</span>
-                        <i class="fa-solid fa-chevron-right n-arrow"></i>
-                    </a>
-                    <ul class="nested-list">
-                        <li><a href="/vortex_wms/modules/inventory/bad_stocks/update.php" class="sub-link <?= (strpos($current_page, '/bad_stocks/update.php') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-ban me-2 text-danger"></i>Bad Stock Update</a></li>
-                        <li><a href="/vortex_wms/modules/inventory/bad_stocks/details.php" class="sub-link <?= (strpos($current_page, '/bad_stocks/details.php') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-file-lines me-2"></i>Bad Inventory Details</a></li>
-                        <li><a href="/vortex_wms/modules/inventory/bad_stocks/reinventorize.php" class="sub-link <?= (strpos($current_page, 'reinventorize.php') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-rotate-left me-2 text-success"></i>Reinventorization</a></li>
-                    </ul>
-                </li>
-
-                <li><a href="/vortex_wms/modules/inventory/alerts.php" class="sub-link <?= (strpos($current_page, 'alerts.php') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-bell me-2 text-warning"></i>Expiry & Alerts</a></li>
+                <li><a href="/vortex_wms/modules/inventory/index.php" class="sub-link <?= (basename($current_page) == 'index.php' && strpos($current_page, '/inventory/') !== false && strpos($current_page, 'stock') === false && strpos($current_page, 'transfer') === false && strpos($current_page, 'adjustment') === false) ? 'active' : ''; ?>"><i class="fa-solid fa-box me-2"></i>Inventory List</a></li>
+                <li><a href="/vortex_wms/modules/inventory/stock/index.php" class="sub-link <?= (strpos($current_page, '/inventory/stock/') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-cubes me-2"></i>Stock Levels</a></li>
+                <li><a href="/vortex_wms/modules/inventory/bin_map.php" class="sub-link <?= (strpos($current_page, 'bin_map.php') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-border-all me-2 text-info"></i>Visual Bin Map</a></li>
+                <li><a href="/vortex_wms/modules/inventory/transfer/index.php" class="sub-link <?= (strpos($current_page, '/inventory/transfer/') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-right-left me-2"></i>Stock Transfer</a></li>
+                <li><a href="/vortex_wms/modules/inventory/adjustment/index.php" class="sub-link <?= (strpos($current_page, '/inventory/adjustment/') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-sliders me-2"></i>Stock Adjustment</a></li>
+                <li><a href="/vortex_wms/modules/inventory/alerts.php" class="sub-link <?= (strpos($current_page, 'alerts.php') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-triangle-exclamation me-2 text-warning"></i>Stock Alerts</a></li>
+                <li><a href="/vortex_wms/modules/inventory/expiry.php" class="sub-link <?= (strpos($current_page, 'expiry.php') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-calendar-xmark me-2 text-danger"></i>Expiry Stock</a></li>
             </ul>
         </li>
 
-        <!-- 3. INBOUND -->
-        <li class="has-submenu mb-1 <?= (strpos($current_page, '/inbound/') !== false || strpos($current_page, 'purchase_orders') !== false) ? 'open' : ''; ?>">
-            <a href="javascript:void(0);" class="sidebar-link submenu-toggle justify-content-between">
-                <span class="d-flex align-items-center gap-2">
-                    <i class="fa-solid fa-truck-ramp-box"></i>
-                    <span>Inbound</span>
-                </span>
-                <i class="fa-solid fa-chevron-right arrow-icon"></i>
+        <!-- 3. PURCHASE ORDERS -->
+        <li class="mb-1">
+            <a href="/vortex_wms/modules/purchase_orders/index.php" class="sidebar-link <?= (strpos($current_page, 'purchase_orders') !== false) ? 'active' : ''; ?>">
+                <i class="fa-solid fa-file-invoice-dollar"></i>
+                <span>Purchase Orders</span>
             </a>
-            <ul class="submenu">
-                <li><a href="/vortex_wms/modules/purchase_orders/index.php" class="sub-link <?= (strpos($current_page, 'purchase_orders') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-file-invoice-dollar me-2"></i>Purchase Orders</a></li>
-                <li><a href="/vortex_wms/modules/inbound/asn/index.php" class="sub-link <?= (strpos($current_page, '/asn/') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-file-invoice me-2"></i>ASN</a></li>
-                <li><a href="/vortex_wms/modules/inbound/grn/index.php" class="sub-link <?= (strpos($current_page, '/grn/') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-boxes-stacked me-2"></i>GRN</a></li>
-                <li><a href="/vortex_wms/modules/inbound/qc/index.php" class="sub-link <?= (strpos($current_page, '/qc/') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-magnifying-glass me-2"></i>Quality Check</a></li>
-                <li><a href="/vortex_wms/modules/inbound/putaway/index.php" class="sub-link <?= (strpos($current_page, '/putaway/') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-dolly me-2"></i>Putaway</a></li>
-            </ul>
         </li>
 
         <!-- 4. OUTBOUND -->
@@ -238,46 +161,13 @@ $current_page = $_SERVER['REQUEST_URI'] ?? '';
             <ul class="submenu">
                 <li><a href="/vortex_wms/modules/outbound/sales_order/index.php" class="sub-link <?= (strpos($current_page, 'sales_order') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-cart-shopping me-2"></i>Sales Orders</a></li>
                 <li><a href="/vortex_wms/modules/outbound/picking/index.php" class="sub-link <?= (strpos($current_page, 'picking') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-hand me-2"></i>Picking</a></li>
-                <li><a href="/vortex_wms/modules/outbound/pick_path.php" class="sub-link <?= (strpos($current_page, 'pick_path.php') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-route me-2 text-info"></i>Optimized Pick Path</a></li>
+                <li><a href="/vortex_wms/modules/outbound/pick_path.php" class="sub-link <?= (strpos($current_page, 'pick_path.php') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-route me-2 text-info"></i>Pick Path</a></li>
                 <li><a href="/vortex_wms/modules/outbound/packing/index.php" class="sub-link <?= (strpos($current_page, 'packing') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-box-open me-2"></i>Packing</a></li>
                 <li><a href="/vortex_wms/modules/outbound/dispatch/index.php" class="sub-link <?= (strpos($current_page, 'dispatch') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-truck-fast me-2"></i>Dispatch</a></li>
             </ul>
         </li>
 
-        <!-- 5. RETURNS & LIQUIDATION -->
-        <li class="has-submenu mb-1 <?= (strpos($current_page, '/returns/') !== false || strpos($current_page, '/liquidation/') !== false) ? 'open' : ''; ?>">
-            <a href="javascript:void(0);" class="sidebar-link submenu-toggle justify-content-between">
-                <span class="d-flex align-items-center gap-2">
-                    <i class="fa-solid fa-right-left"></i>
-                    <span>Returns & Liquidation</span>
-                </span>
-                <i class="fa-solid fa-chevron-right arrow-icon"></i>
-            </a>
-            <ul class="submenu">
-                <li><a href="/vortex_wms/modules/returns/index.php" class="sub-link <?= (strpos($current_page, '/returns/index.php') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-rotate-left me-2"></i>Returns Intake (RMA)</a></li>
-                <li><a href="/vortex_wms/modules/returns/create.php" class="sub-link <?= (strpos($current_page, '/returns/create.php') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-plus me-2"></i>Create Return Slip</a></li>
-                <li><a href="/vortex_wms/modules/liquidation/index.php" class="sub-link <?= (strpos($current_page, '/liquidation/') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-dumpster-fire me-2 text-danger"></i>Liquidation Lots</a></li>
-            </ul>
-        </li>
-
-        <!-- 6. MANPOWER (HR & PAYROLL) -->
-        <li class="has-submenu mb-1 <?= (strpos($current_page, '/hr/') !== false || strpos($current_page, '/payroll/') !== false) ? 'open' : ''; ?>">
-            <a href="javascript:void(0);" class="sidebar-link submenu-toggle justify-content-between">
-                <span class="d-flex align-items-center gap-2">
-                    <i class="fa-solid fa-users-gear"></i>
-                    <span>Manpower</span>
-                </span>
-                <i class="fa-solid fa-chevron-right arrow-icon"></i>
-            </a>
-            <ul class="submenu">
-                <li><a href="/vortex_wms/modules/hr/employees/index.php" class="sub-link <?= (strpos($current_page, 'employees') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-users me-2"></i>Employees</a></li>
-                <li><a href="/vortex_wms/modules/hr/attendance/index.php" class="sub-link <?= (strpos($current_page, 'attendance') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-calendar-check me-2"></i>Attendance</a></li>
-                <li><a href="/vortex_wms/modules/hr/leave/index.php" class="sub-link <?= (strpos($current_page, 'leave') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-calendar-days me-2"></i>Leaves</a></li>
-                <li><a href="/vortex_wms/modules/payroll/index.php" class="sub-link <?= (strpos($current_page, 'payroll') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-file-invoice-dollar me-2 text-success"></i>Payroll</a></li>
-            </ul>
-        </li>
-
-        <!-- 7. MASTER DATA -->
+        <!-- 5. MASTER DATA -->
         <li class="has-submenu mb-1 <?= (strpos($current_page, '/masters/') !== false) ? 'open' : ''; ?>">
             <a href="javascript:void(0);" class="sidebar-link submenu-toggle justify-content-between">
                 <span class="d-flex align-items-center gap-2">
@@ -294,7 +184,22 @@ $current_page = $_SERVER['REQUEST_URI'] ?? '';
             </ul>
         </li>
 
-        <!-- 8. REPORTS -->
+        <!-- 6. PAYROLL -->
+        <li class="has-submenu mb-1 <?= (strpos($current_page, '/payroll/') !== false) ? 'open' : ''; ?>">
+            <a href="javascript:void(0);" class="sidebar-link submenu-toggle justify-content-between">
+                <span class="d-flex align-items-center gap-2">
+                    <i class="fa-solid fa-money-check-dollar"></i>
+                    <span>Payroll</span>
+                </span>
+                <i class="fa-solid fa-chevron-right arrow-icon"></i>
+            </a>
+            <ul class="submenu">
+                <li><a href="/vortex_wms/modules/payroll/index.php" class="sub-link <?= (basename($current_page) == 'index.php' && strpos($current_page, 'payroll') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-list-check me-2"></i>Payroll Overview</a></li>
+                <li><a href="/vortex_wms/modules/payroll/slip.php" class="sub-link <?= (strpos($current_page, 'slip.php') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-file-invoice me-2"></i>Salary Slip</a></li>
+            </ul>
+        </li>
+
+        <!-- 7. REPORTS -->
         <li class="has-submenu mb-1 <?= (strpos($current_page, '/reports/') !== false) ? 'open' : ''; ?>">
             <a href="javascript:void(0);" class="sidebar-link submenu-toggle justify-content-between">
                 <span class="d-flex align-items-center gap-2">
@@ -313,7 +218,7 @@ $current_page = $_SERVER['REQUEST_URI'] ?? '';
             </ul>
         </li>
 
-        <!-- 9. UTILITIES & TOOLS -->
+        <!-- 8. TOOLS & UTILITIES -->
         <li class="has-submenu mb-1 <?= (strpos($current_page, '/tools/') !== false) ? 'open' : ''; ?>">
             <a href="javascript:void(0);" class="sidebar-link submenu-toggle justify-content-between">
                 <span class="d-flex align-items-center gap-2">
@@ -323,15 +228,29 @@ $current_page = $_SERVER['REQUEST_URI'] ?? '';
                 <i class="fa-solid fa-chevron-right arrow-icon"></i>
             </a>
             <ul class="submenu">
-                <li><a href="/vortex_wms/modules/tools/barcode_generator.php" class="sub-link <?= (strpos($current_page, 'barcode_generator') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-barcode me-2 text-primary"></i>Barcode / QR</a></li>
+                <li><a href="/vortex_wms/modules/tools/barcode_generator.php" class="sub-link <?= (strpos($current_page, 'barcode_generator') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-barcode me-2 text-primary"></i>Barcode Generator</a></li>
                 <li><a href="/vortex_wms/modules/tools/scanner.php" class="sub-link <?= (strpos($current_page, 'scanner.php') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-mobile-screen-button me-2 text-danger"></i>Mobile Scanner</a></li>
                 <li><a href="/vortex_wms/modules/tools/universal_import.php" class="sub-link <?= (strpos($current_page, 'universal_import') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-file-import me-2 text-info"></i>Universal Import</a></li>
             </ul>
         </li>
 
-        <li class="my-2 border-top border-secondary border-opacity-25"></li>
+        <!-- 9. NOTIFICATIONS -->
+        <li class="mb-1">
+            <a href="/vortex_wms/modules/notifications/index.php" class="sidebar-link <?= (strpos($current_page, 'notifications') !== false) ? 'active' : ''; ?>">
+                <i class="fa-solid fa-bell"></i>
+                <span>Notifications</span>
+            </a>
+        </li>
 
-        <!-- 10. SYSTEM SETTINGS -->
+        <!-- 10. COMPANY SETTINGS -->
+        <li class="mb-1">
+            <a href="/vortex_wms/modules/settings/company/index.php" class="sidebar-link <?= (strpos($current_page, 'settings/company') !== false) ? 'active' : ''; ?>">
+                <i class="fa-solid fa-building"></i>
+                <span>Company Settings</span>
+            </a>
+        </li>
+
+        <!-- 11. SYSTEM SETTINGS -->
         <li class="mb-1">
             <a href="/vortex_wms/modules/system_settings/index.php" class="sidebar-link <?= (strpos($current_page, 'system_settings') !== false) ? 'active' : ''; ?>">
                 <i class="fa-solid fa-gear"></i>
@@ -339,7 +258,9 @@ $current_page = $_SERVER['REQUEST_URI'] ?? '';
             </a>
         </li>
 
-        <!-- 11. LOGOUT -->
+        <li class="my-2 border-top border-secondary border-opacity-25"></li>
+
+        <!-- 12. LOGOUT -->
         <li>
             <a href="/vortex_wms/logout.php" class="sidebar-link text-danger">
                 <i class="fa-solid fa-right-from-bracket"></i>
@@ -351,10 +272,8 @@ $current_page = $_SERVER['REQUEST_URI'] ?? '';
 
 <script>
 (function() {
-    // Robust Global Click Delegation
     document.addEventListener('click', function(e) {
         const submenuToggle = e.target.closest('#vortexSidebar .submenu-toggle');
-        const nestedToggle  = e.target.closest('#vortexSidebar .nested-btn');
 
         if (submenuToggle) {
             e.preventDefault();
@@ -363,7 +282,7 @@ $current_page = $_SERVER['REQUEST_URI'] ?? '';
             const currentParent = submenuToggle.closest('.has-submenu');
             const sidebar = document.getElementById('vortexSidebar');
 
-            // Close other sibling dropdowns (Accordion mode)
+            // Accordion toggle
             sidebar.querySelectorAll('.has-submenu').forEach(item => {
                 if (item !== currentParent) {
                     item.classList.remove('open');
@@ -372,23 +291,10 @@ $current_page = $_SERVER['REQUEST_URI'] ?? '';
 
             currentParent.classList.toggle('open');
             sessionStorage.setItem('vortexSidebarScroll', sidebar.scrollTop);
-            return;
-        }
-
-        if (nestedToggle) {
-            e.preventDefault();
-            e.stopPropagation();
-            
-            const parentItem = nestedToggle.closest('.nested-item');
-            parentItem.classList.toggle('open');
-            
-            const sidebar = document.getElementById('vortexSidebar');
-            if (sidebar) sessionStorage.setItem('vortexSidebarScroll', sidebar.scrollTop);
-            return;
         }
     }, true);
 
-    // Retain Scroll Position on load
+    // Maintain Scroll Position
     window.addEventListener('load', function() {
         const sidebar = document.getElementById('vortexSidebar');
         if (!sidebar) return;

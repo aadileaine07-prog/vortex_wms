@@ -1,426 +1,439 @@
 <?php
-session_start();
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
+// Error reporting safety
+error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
+ini_set('display_errors', 0);
+
+$projectRoot = file_exists(__DIR__ . "/../../config/database.php") ? dirname(__DIR__, 2) : dirname(__DIR__, 3);
 
 if (!isset($_SESSION['employee_id'])) {
-    header("Location: ../../login.php");
+    header("Location: /vortex_wms/login.php");
     exit();
 }
 
-require_once "../../config/database.php";
+require_once $projectRoot . "/config/database.php";
 
-/* ===============================
-   1. Dashboard Statistics Queries
-================================ */
+/* ==========================================================================
+   1. FAIL-SAFE AGGREGATE FETCHER
+   ========================================================================== */
 
-$totalProducts = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) total FROM products"))['total'] ?? 0;
-$totalEmployees = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) total FROM employees"))['total'] ?? 0;
-$totalWarehouses = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) total FROM warehouse"))['total'] ?? 0;
-$totalInventory = mysqli_fetch_assoc(mysqli_query($conn, "SELECT IFNULL(SUM(available_qty),0) total FROM inventory"))['total'] ?? 0;
-
-$lowStock = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) total FROM inventory WHERE status='Low Stock'"))['total'] ?? 0;
-$outStock = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) total FROM inventory WHERE status='Out of Stock'"))['total'] ?? 0;
-
-$totalASN = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) total FROM asn"))['total'] ?? 0;
-$totalGRN = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) total FROM grn"))['total'] ?? 0;
-
-/* ===============================
-   2. Chart Data Processing
-================================ */
-
-// Warehouse Chart Data
-$warehouseQuery = mysqli_query($conn, "SELECT warehouse, SUM(available_qty) AS qty FROM inventory GROUP BY warehouse");
-$warehouseLabels = [];
-$warehouseQty = [];
-
-while ($row = mysqli_fetch_assoc($warehouseQuery)) {
-    $warehouseLabels[] = $row['warehouse'];
-    $warehouseQty[] = (int)$row['qty'];
+function safeScalar($conn, $sql, $default = 0) {
+    if (!$conn) return $default;
+    try {
+        $res = @mysqli_query($conn, $sql);
+        if ($res && $r = @mysqli_fetch_array($res)) {
+            return $r[0] !== null ? $r[0] : $default;
+        }
+    } catch (\Throwable $e) {
+        return $default;
+    }
+    return $default;
 }
 
-// Monthly Trends Data
-$inboundLabels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
-$inboundData = [12, 19, 3, 5, 2, 3];
+// Table name resolution
+$whTable = "warehouse";
+$chkWh = @mysqli_query($conn, "SHOW TABLES LIKE 'warehouse'");
+if (!$chkWh || mysqli_num_rows($chkWh) == 0) {
+    $whTable = "warehouses";
+}
 
-$outboundLabels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
-$outboundData = [8, 11, 7, 12, 9, 14];
+$totalProducts   = (int)safeScalar($conn, "SELECT COUNT(*) FROM products", 0);
+$totalWarehouses = (int)safeScalar($conn, "SELECT COUNT(*) FROM `{$whTable}` WHERE LOWER(status) = 'active' OR status = '1'", 1);
+$totalActiveBins = (int)safeScalar($conn, "SELECT COUNT(*) FROM bin_locations WHERE status = 'Active'", 0);
+$totalInventory  = (int)safeScalar($conn, "SELECT IFNULL(SUM(available_qty), 0) FROM inventory", 0);
 
-include "../../includes/header.php";
-include "../../includes/navbar.php";
-include "../../includes/sidebar.php";
+// Inventory Health
+$lowStockCount   = (int)safeScalar($conn, "SELECT COUNT(*) FROM inventory WHERE available_qty > 0 AND available_qty <= 10", 0);
+$outOfStockCount = (int)safeScalar($conn, "SELECT COUNT(*) FROM inventory WHERE available_qty = 0", 0);
+
+// Orders & Fulfilment
+$totalPOs        = (int)safeScalar($conn, "SELECT COUNT(*) FROM purchase_orders", 0);
+$totalOrders     = (int)safeScalar($conn, "SELECT COUNT(*) FROM sales_orders", 0);
+$completedOrders = (int)safeScalar($conn, "SELECT COUNT(*) FROM sales_orders WHERE LOWER(status) IN ('shipped', 'delivered', 'completed')", 0);
+$fulfillmentRate = ($totalOrders > 0) ? round(($completedOrders / $totalOrders) * 100, 1) : 100.0;
+
+// Warehouse Capacity %
+$usedCapPct = ($totalActiveBins > 0) ? min(100, round(($totalInventory / ($totalActiveBins * 100)) * 100, 1)) : 0.0;
+
+/* ==========================================================================
+   2. RECENT RECORDS & CHART DATA
+   ========================================================================== */
+
+$whLabels = [];
+$whStock  = [];
+
+try {
+    $whDistQuery = @mysqli_query($conn, "
+        SELECT 
+            COALESCE(w.warehouse_name, w.name, 'Main Warehouse') AS wh_name,
+            IFNULL(SUM(i.available_qty), 0) AS total_stock
+        FROM inventory i
+        LEFT JOIN `{$whTable}` w ON w.id = i.warehouse_id
+        GROUP BY i.warehouse_id, w.warehouse_name, w.name
+        LIMIT 6
+    ");
+
+    if ($whDistQuery && mysqli_num_rows($whDistQuery) > 0) {
+        while ($r = mysqli_fetch_assoc($whDistQuery)) {
+            $whLabels[] = $r['wh_name'] ?? 'Facility';
+            $whStock[]  = (int)$r['total_stock'];
+        }
+    }
+} catch (\Throwable $e) {}
+
+if (empty($whLabels)) {
+    $whLabels = ['Main Facility'];
+    $whStock  = [$totalInventory];
+}
+
+// Recent Orders
+$recentOrders = [];
+try {
+    $soRes = @mysqli_query($conn, "SELECT * FROM sales_orders ORDER BY id DESC LIMIT 5");
+    if ($soRes) {
+        while ($r = mysqli_fetch_assoc($soRes)) { $recentOrders[] = $r; }
+    }
+} catch (\Throwable $e) {}
+
+// Low Stock Items
+$lowStockItems = [];
+try {
+    $lsRes = @mysqli_query($conn, "
+        SELECT i.*, p.product_name, p.sku 
+        FROM inventory i 
+        LEFT JOIN products p ON p.id = i.product_id 
+        WHERE i.available_qty <= 10 
+        ORDER BY i.available_qty ASC 
+        LIMIT 5
+    ");
+    if ($lsRes) {
+        while ($r = mysqli_fetch_assoc($lsRes)) { $lowStockItems[] = $r; }
+    }
+} catch (\Throwable $e) {}
+
+include $projectRoot . "/includes/header.php";
 ?>
 
-<div class="content">
-    <div class="container-fluid">
+<div class="container-fluid p-0">
 
-        <!-- Top Header & Actions -->
-        <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
-            <div>
-                <h2 class="fw-bold">📊 Dashboard Reports</h2>
-                <p class="text-muted mb-0">Enterprise Reporting Center</p>
-            </div>
-            
-            <div class="d-flex gap-2 align-items-center flex-wrap">
-                <!-- Auto Refresh Switch -->
-                <div class="form-check form-switch me-2 bg-white p-2 rounded border shadow-sm">
-                    <input class="form-check-input ms-0 me-2" type="checkbox" id="autoRefreshSwitch">
-                    <label class="form-check-label text-dark fw-bold small" for="autoRefreshSwitch">Live Reload</label>
-                </div>
-
-                <button onclick="exportTableToCSV('dashboard-summary.csv')" class="btn btn-success">📊 Export Excel</button>
-                <button onclick="window.print();" class="btn btn-dark">🖨 Print Report</button>
-            </div>
+    <!-- Top Executive Header & Export Bar -->
+    <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
+        <div>
+            <h2 class="fw-bold text-dark mb-1">
+                <i class="fa-solid fa-chart-line text-primary me-2"></i>Executive WMS Analytics
+            </h2>
+            <p class="text-muted mb-0">Live enterprise inventory metrics, operational throughput, and fulfillment audits</p>
         </div>
-
-        <!-- Stat Cards Row -->
-        <div class="row">
-            <div class="col-lg-3 col-md-6 mb-4">
-                <div class="card shadow border-0 bg-primary text-white">
-                    <div class="card-body">
-                        <h6>Total Products</h6>
-                        <h2><?= $totalProducts ?></h2>
-                    </div>
-                </div>
+        
+        <div class="d-flex gap-2 align-items-center flex-wrap">
+            <div class="form-check form-switch bg-white px-3 py-2 rounded-pill border shadow-sm d-flex align-items-center me-1">
+                <input class="form-check-input me-2 ms-0 cursor-pointer" type="checkbox" id="autoReloadSwitch">
+                <label class="form-check-label text-dark fw-bold small cursor-pointer" for="autoReloadSwitch">Auto Reload</label>
             </div>
 
-            <div class="col-lg-3 col-md-6 mb-4">
-                <div class="card shadow border-0 bg-success text-white">
-                    <div class="card-body">
-                        <h6>Employees</h6>
-                        <h2><?= $totalEmployees ?></h2>
-                    </div>
-                </div>
-            </div>
+            <button onclick="exportReportToCSV()" class="btn btn-outline-success fw-bold rounded-pill px-3 shadow-sm">
+                <i class="fa-solid fa-file-excel me-1"></i> Export CSV
+            </button>
+            <button onclick="window.print()" class="btn btn-primary fw-bold rounded-pill px-4 shadow-sm">
+                <i class="fa-solid fa-print me-1"></i> Print / PDF
+            </button>
+        </div>
+    </div>
 
-            <div class="col-lg-3 col-md-6 mb-4">
-                <div class="card shadow border-0 bg-info text-white">
-                    <div class="card-body">
-                        <h6>Warehouses</h6>
-                        <h2><?= $totalWarehouses ?></h2>
+    <!-- 1. KPI STATS TILES -->
+    <div class="row g-3 mb-4">
+        <div class="col-xl-3 col-md-6">
+            <div class="card shadow-sm border-0 rounded-4 bg-white p-3 h-100 border-start border-4 border-primary">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <div class="text-muted small fw-semibold text-uppercase">Total Inventory Units</div>
+                        <div class="fs-3 fw-bold text-dark my-1"><?= number_format($totalInventory); ?></div>
+                        <small class="text-primary fw-semibold"><i class="fa-solid fa-cube me-1"></i><?= $totalProducts; ?> catalog master items</small>
                     </div>
-                </div>
-            </div>
-
-            <div class="col-lg-3 col-md-6 mb-4">
-                <div class="card shadow border-0 bg-warning text-dark">
-                    <div class="card-body">
-                        <h6>Total Inventory</h6>
-                        <h2><?= $totalInventory ?></h2>
-                    </div>
-                </div>
-            </div>
-
-            <div class="col-lg-3 col-md-6 mb-4">
-                <div class="card shadow border-0 bg-danger text-white">
-                    <div class="card-body">
-                        <h6>Low Stock</h6>
-                        <h2><?= $lowStock ?></h2>
-                    </div>
-                </div>
-            </div>
-
-            <div class="col-lg-3 col-md-6 mb-4">
-                <div class="card shadow border-0 bg-secondary text-white">
-                    <div class="card-body">
-                        <h6>Out Of Stock</h6>
-                        <h2><?= $outStock ?></h2>
-                    </div>
-                </div>
-            </div>
-
-            <div class="col-lg-3 col-md-6 mb-4">
-                <div class="card shadow border-0 bg-dark text-white">
-                    <div class="card-body">
-                        <h6>Total ASN</h6>
-                        <h2><?= $totalASN ?></h2>
-                    </div>
-                </div>
-            </div>
-
-            <div class="col-lg-3 col-md-6 mb-4">
-                <div class="card shadow border-0" style="background:#6f42c1;color:white;">
-                    <div class="card-body">
-                        <h6>Total GRN</h6>
-                        <h2><?= $totalGRN ?></h2>
+                    <div class="p-3 bg-primary bg-opacity-10 text-primary rounded-4">
+                        <i class="fa-solid fa-boxes-stacked fa-2x"></i>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- Warehouse Space Utilization Progress Bar -->
-        <div class="card shadow border-0 mb-4">
-            <div class="card-body">
-                <div class="d-flex justify-content-between align-items-center mb-2">
-                    <h6 class="fw-bold mb-0">🏭 Warehouse Capacity Usage</h6>
-                    <span class="fw-bold text-primary">68% Space Occupied</span>
-                </div>
-                <div class="progress" style="height: 12px;">
-                    <div class="progress-bar bg-primary progress-bar-striped progress-bar-animated" role="progressbar" style="width: 68%;"></div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Inventory Charts Row -->
-        <div class="row">
-            <div class="col-lg-8 mb-4">
-                <div class="card shadow border-0">
-                    <div class="card-header bg-primary text-white">
-                        <h5 class="mb-0">📦 Inventory by Warehouse</h5>
+        <div class="col-xl-3 col-md-6">
+            <div class="card shadow-sm border-0 rounded-4 bg-white p-3 h-100 border-start border-4 border-success">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <div class="text-muted small fw-semibold text-uppercase">Order Fulfillment</div>
+                        <div class="fs-3 fw-bold text-dark my-1"><?= $fulfillmentRate; ?>%</div>
+                        <small class="text-muted"><span class="text-success fw-bold"><?= $completedOrders; ?></span> of <?= $totalOrders; ?> completed</small>
                     </div>
-                    <div class="card-body">
-                        <canvas id="warehouseChart" height="120"></canvas>
-                    </div>
-                </div>
-            </div>
-
-            <div class="col-lg-4 mb-4">
-                <div class="card shadow border-0">
-                    <div class="card-header bg-success text-white">
-                        <h5 class="mb-0">📊 Stock Status</h5>
-                    </div>
-                    <div class="card-body">
-                        <canvas id="stockChart"></canvas>
+                    <div class="p-3 bg-success bg-opacity-10 text-success rounded-4">
+                        <i class="fa-solid fa-circle-check fa-2x"></i>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- Fast Moving Products & Low Stock Alert -->
-        <div class="row">
-            <!-- Recent Sales Table -->
-            <div class="col-lg-8 mb-4">
-                <div class="card shadow border-0">
-                    <div class="card-header bg-dark text-white">
-                        <h5 class="mb-0">🕒 Recent Sales Orders</h5>
+        <div class="col-xl-3 col-md-6">
+            <div class="card shadow-sm border-0 rounded-4 bg-white p-3 h-100 border-start border-4 border-warning">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <div class="text-muted small fw-semibold text-uppercase">Low & Out of Stock</div>
+                        <div class="fs-3 fw-bold text-warning my-1"><?= ($lowStockCount + $outOfStockCount); ?></div>
+                        <small class="text-danger fw-semibold"><i class="fa-solid fa-triangle-exclamation me-1"></i><?= $outOfStockCount; ?> depleted items</small>
                     </div>
-                    <div class="card-body">
-                        <table class="table table-hover table-bordered" id="salesTable">
-                            <thead>
+                    <div class="p-3 bg-warning bg-opacity-10 text-warning rounded-4">
+                        <i class="fa-solid fa-bell fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-xl-3 col-md-6">
+            <div class="card shadow-sm border-0 rounded-4 bg-white p-3 h-100 border-start border-4 border-info">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <div class="text-muted small fw-semibold text-uppercase">Active Facilities</div>
+                        <div class="fs-3 fw-bold text-dark my-1"><?= $totalWarehouses; ?></div>
+                        <small class="text-info fw-semibold"><i class="fa-solid fa-location-dot me-1"></i><?= $totalActiveBins; ?> active storage bins</small>
+                    </div>
+                    <div class="p-3 bg-info bg-opacity-10 text-info rounded-4">
+                        <i class="fa-solid fa-warehouse fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 2. WAREHOUSE CAPACITY UTILIZATION GAUGE -->
+    <div class="card shadow-sm border-0 rounded-4 bg-white mb-4">
+        <div class="card-body p-4">
+            <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+                <div>
+                    <h6 class="fw-bold text-dark mb-0"><i class="fa-solid fa-gauge-high text-primary me-2"></i>Global Storage Capacity Occupancy</h6>
+                    <small class="text-muted">Total inventory load mapped against nominal bin units</small>
+                </div>
+                <div class="badge bg-primary fs-6 px-3 py-2 rounded-pill"><?= $usedCapPct; ?>% Occupied</div>
+            </div>
+            <div class="progress rounded-pill bg-light" style="height: 14px;">
+                <div class="progress-bar progress-bar-striped progress-bar-animated <?= ($usedCapPct > 85) ? 'bg-danger' : (($usedCapPct > 65) ? 'bg-warning' : 'bg-success'); ?>" 
+                     role="progressbar" style="width: <?= $usedCapPct; ?>%;"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 3. VISUAL ANALYTICS CHARTS -->
+    <div class="row g-4 mb-4">
+        <div class="col-lg-8">
+            <div class="card shadow-sm border-0 rounded-4 bg-white h-100">
+                <div class="card-header bg-white border-0 pt-4 px-4 pb-0 d-flex justify-content-between align-items-center">
+                    <h5 class="fw-bold text-dark mb-0"><i class="fa-solid fa-chart-column text-primary me-2"></i>Stock Volume by Warehouse</h5>
+                    <span class="badge bg-light text-secondary border">Real-time DB</span>
+                </div>
+                <div class="card-body p-4">
+                    <canvas id="whStockChart" style="max-height: 280px;"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-4">
+            <div class="card shadow-sm border-0 rounded-4 bg-white h-100">
+                <div class="card-header bg-white border-0 pt-4 px-4 pb-0 d-flex justify-content-between align-items-center">
+                    <h5 class="fw-bold text-dark mb-0"><i class="fa-solid fa-chart-pie text-info me-2"></i>Inventory Health</h5>
+                </div>
+                <div class="card-body p-4 d-flex align-items-center justify-content-center">
+                    <div style="width: 100%; max-width: 250px;">
+                        <canvas id="healthChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 4. OPERATIONS TABLES -->
+    <div class="row g-4 mb-4">
+        <!-- Recent Orders -->
+        <div class="col-lg-7">
+            <div class="card shadow-sm border-0 rounded-4 bg-white h-100">
+                <div class="card-header bg-white border-0 pt-4 px-4 pb-2 d-flex justify-content-between align-items-center">
+                    <h5 class="fw-bold text-dark mb-0"><i class="fa-solid fa-dolly text-primary me-2"></i>Recent Sales Orders</h5>
+                    <a href="/vortex_wms/modules/outbound/sales_order/index.php" class="btn btn-sm btn-light rounded-pill px-3 fw-bold">View All</a>
+                </div>
+                <div class="card-body p-4 pt-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle mb-0" id="salesOrdersReportTable">
+                            <thead class="table-light">
                                 <tr>
-                                    <th>Order No</th>
+                                    <th>Order #</th>
                                     <th>Customer</th>
                                     <th>Status</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                <?php
-                                $sales = mysqli_query($conn, "
-                                    SELECT order_number, customer_name, status
-                                    FROM sales_orders
-                                    ORDER BY id DESC
-                                    LIMIT 5
-                                ");
-
-                                if ($sales && mysqli_num_rows($sales) > 0) {
-                                    while ($row = mysqli_fetch_assoc($sales)) {
-                                ?>
+                                <?php if (!empty($recentOrders)): ?>
+                                    <?php foreach ($recentOrders as $so): ?>
                                         <tr>
-                                            <td><?= htmlspecialchars($row['order_number']); ?></td>
-                                            <td><?= htmlspecialchars($row['customer_name']); ?></td>
-                                            <td><span class="badge bg-info"><?= htmlspecialchars($row['status']); ?></span></td>
+                                            <td><code class="fw-bold text-primary font-monospace"><?= htmlspecialchars($so['order_number'] ?? ('SO-' . $so['id'])); ?></code></td>
+                                            <td class="fw-semibold text-dark"><?= htmlspecialchars($so['customer_name'] ?? 'Client'); ?></td>
+                                            <td>
+                                                <?php 
+                                                $st = strtolower($so['status'] ?? 'pending');
+                                                if ($st === 'delivered' || $st === 'completed' || $st === 'shipped') echo '<span class="badge bg-success-subtle text-success px-2 py-1 rounded-pill">Completed</span>';
+                                                else echo '<span class="badge bg-warning-subtle text-warning px-2 py-1 rounded-pill">Processing</span>';
+                                                ?>
+                                            </td>
                                         </tr>
-                                <?php 
-                                    } 
-                                } else {
-                                    echo "<tr><td colspan='3' class='text-center'>No recent sales orders found.</td></tr>";
-                                }
-                                ?>
+                                    <?php endforeach; ?>
+                                <?php else: ?>
+                                    <tr>
+                                        <td colspan="3" class="text-center py-4 text-muted">No outbound orders recorded.</td>
+                                    </tr>
+                                <?php endif; ?>
                             </tbody>
                         </table>
                     </div>
                 </div>
             </div>
+        </div>
 
-            <!-- Low Stock Alert Box -->
-            <div class="col-lg-4 mb-4">
-                <div class="card shadow border-0">
-                    <div class="card-header bg-danger text-white">
-                        <h5 class="mb-0">⚠ Low Stock Alert</h5>
-                    </div>
-                    <div class="card-body">
-                        <?php
-                        $stock = mysqli_query($conn, "
-                            SELECT product_name, available_qty
-                            FROM inventory
-                            WHERE available_qty <= 10
-                            LIMIT 5
-                        ");
-
-                        if ($stock && mysqli_num_rows($stock) > 0) {
-                            while ($row = mysqli_fetch_assoc($stock)) {
-                        ?>
-                                <div class="mb-3 border-bottom pb-2 d-flex justify-content-between align-items-center">
-                                    <strong><?= htmlspecialchars($row['product_name']); ?></strong>
-                                    <span class="badge bg-warning text-dark">
-                                        Qty: <?= $row['available_qty']; ?>
-                                    </span>
-                                </div>
-                        <?php 
-                            } 
-                        } else {
-                            echo "<p class='text-muted text-center mb-0'>No low stock alerts.</p>";
-                        }
-                        ?>
+        <!-- Low Stock Action List -->
+        <div class="col-lg-5">
+            <div class="card shadow-sm border-0 rounded-4 bg-white h-100">
+                <div class="card-header bg-white border-0 pt-4 px-4 pb-2 d-flex justify-content-between align-items-center">
+                    <h5 class="fw-bold text-dark mb-0"><i class="fa-solid fa-triangle-exclamation text-danger me-2"></i>Critical Replenishment</h5>
+                    <span class="badge bg-danger rounded-pill"><?= $lowStockCount; ?> items</span>
+                </div>
+                <div class="card-body p-4 pt-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Item / SKU</th>
+                                    <th>Bin</th>
+                                    <th class="text-end">Qty</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php if (!empty($lowStockItems)): ?>
+                                    <?php foreach ($lowStockItems as $ls): ?>
+                                        <tr>
+                                            <td>
+                                                <strong class="d-block text-dark"><?= htmlspecialchars($ls['product_name'] ?? 'Item'); ?></strong>
+                                                <small class="text-muted font-monospace"><?= htmlspecialchars($ls['sku'] ?? '-'); ?></small>
+                                            </td>
+                                            <td><span class="badge bg-light text-primary border font-monospace"><?= htmlspecialchars($ls['bin_location'] ?? 'L0-A1'); ?></span></td>
+                                            <td class="text-end">
+                                                <span class="badge <?= ($ls['available_qty'] == 0) ? 'bg-danger' : 'bg-warning text-dark'; ?> px-2 py-1 rounded-pill">
+                                                    <?= $ls['available_qty']; ?> Units
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                <?php else: ?>
+                                    <tr>
+                                        <td colspan="3" class="text-center py-4 text-muted">All stock levels are optimal.</td>
+                                    </tr>
+                                <?php endif; ?>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </div>
         </div>
-
-        <!-- Quick Actions Row -->
-        <div class="row mt-2">
-            <div class="col-lg-12">
-                <div class="card shadow border-0">
-                    <div class="card-header bg-primary text-white">
-                        <h5 class="mb-0">⚡ Quick Actions</h5>
-                    </div>
-                    <div class="card-body">
-                        <div class="row text-center">
-                            <div class="col-md-3 mb-3">
-                                <a href="../inventory/index.php" class="btn btn-outline-primary w-100 py-3">
-                                    📦<br>Inventory
-                                </a>
-                            </div>
-                            <div class="col-md-3 mb-3">
-                                <a href="../inbound/dashboard.php" class="btn btn-outline-success w-100 py-3">
-                                    📥<br>Inbound
-                                </a>
-                            </div>
-                            <div class="col-md-3 mb-3">
-                                <a href="../outbound/sales_order/index.php" class="btn btn-outline-warning w-100 py-3">
-                                    📤<br>Outbound
-                                </a>
-                            </div>
-                            <div class="col-md-3 mb-3">
-                                <a href="../hr/employees/index.php" class="btn btn-outline-danger w-100 py-3">
-                                    👨‍💼<br>Employees
-                                </a>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Monthly Trends Row -->
-        <div class="row mt-4 mb-4">
-            <div class="col-lg-6 mb-3">
-                <div class="card shadow border-0">
-                    <div class="card-header bg-success text-white">
-                        <h5 class="mb-0">📈 Monthly Inbound</h5>
-                    </div>
-                    <div class="card-body">
-                        <canvas id="inboundChart" height="120"></canvas>
-                    </div>
-                </div>
-            </div>
-
-            <div class="col-lg-6 mb-3">
-                <div class="card shadow border-0">
-                    <div class="card-header bg-danger text-white">
-                        <h5 class="mb-0">📉 Monthly Outbound</h5>
-                    </div>
-                    <div class="card-body">
-                        <canvas id="outboundChart" height="120"></canvas>
-                    </div>
-                </div>
-            </div>
-        </div>
-
     </div>
+
 </div>
 
-<?php include "../../includes/footer.php"; ?>
-
+<!-- ChartJS Execution -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
 <script>
-// 1. Live Reload Feature (Every 30 seconds)
-const refreshSwitch = document.getElementById('autoRefreshSwitch');
-let refreshInterval;
+// 1. Live Reload Engine
+const autoSwitch = document.getElementById('autoReloadSwitch');
+let autoReloadTimer;
 
-refreshSwitch.addEventListener('change', function() {
-    if (this.checked) {
-        refreshInterval = setInterval(() => {
-            location.reload();
-        }, 30000);
-    } else {
-        clearInterval(refreshInterval);
-    }
-});
-
-// 2. Export Table to CSV Script
-function exportTableToCSV(filename) {
-    let csv = [];
-    let rows = document.querySelectorAll("#salesTable tr");
-    
-    for (let i = 0; i < rows.length; i++) {
-        let row = [], cols = rows[i].querySelectorAll("td, th");
-        for (let j = 0; j < cols.length; j++) 
-            row.push(cols[j].innerText);
-        csv.push(row.join(","));        
-    }
-
-    let csvFile = new Blob([csv.join("\n")], {type: "text/csv"});
-    let downloadLink = document.createElement("a");
-    downloadLink.download = filename;
-    downloadLink.href = window.URL.createObjectURL(csvFile);
-    downloadLink.style.display = "none";
-    document.body.appendChild(downloadLink);
-    downloadLink.click();
+if (autoSwitch) {
+    autoSwitch.addEventListener('change', function() {
+        if (this.checked) {
+            autoReloadTimer = setInterval(() => { window.location.reload(); }, 25000);
+        } else {
+            clearInterval(autoReloadTimer);
+        }
+    });
 }
 
-// 3. Chart Instances
-new Chart(document.getElementById('warehouseChart'), {
+// 2. CSV Data Exporter
+function exportReportToCSV() {
+    let csv = ["Order Number,Customer Name,Status"];
+    const rows = document.querySelectorAll("#salesOrdersReportTable tbody tr");
+    
+    rows.forEach(r => {
+        const cols = r.querySelectorAll("td");
+        if (cols.length >= 3) {
+            const rowData = [
+                `"${cols[0].innerText.trim()}"`,
+                `"${cols[1].innerText.trim()}"`,
+                `"${cols[2].innerText.trim()}"`
+            ];
+            csv.push(rowData.join(","));
+        }
+    });
+
+    const blob = new Blob([csv.join("\n")], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `WMS_Dashboard_Report_${new Date().toISOString().slice(0,10)}.csv`;
+    link.click();
+}
+
+// 3. Stock Volume Bar Chart
+new Chart(document.getElementById('whStockChart'), {
     type: 'bar',
     data: {
-        labels: <?= json_encode($warehouseLabels); ?>,
+        labels: <?= json_encode($whLabels); ?>,
         datasets: [{
-            label: 'Available Qty',
-            data: <?= json_encode($warehouseQty); ?>,
-            backgroundColor: '#0d6efd'
+            label: 'Stock Units',
+            data: <?= json_encode($whStock); ?>,
+            backgroundColor: '#2563eb',
+            borderRadius: 8,
+            barThickness: 32
         }]
     },
-    options: { responsive: true }
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+            y: { beginAtZero: true, grid: { color: 'rgba(0,0,0,0.05)' } },
+            x: { grid: { display: false } }
+        }
+    }
 });
 
-new Chart(document.getElementById('stockChart'), {
+// 4. Inventory Health Doughnut
+new Chart(document.getElementById('healthChart'), {
     type: 'doughnut',
     data: {
-        labels: ['Low Stock', 'Out Of Stock'],
+        labels: ['Optimal Stock', 'Low Stock', 'Out of Stock'],
         datasets: [{
-            data: [<?= $lowStock; ?>, <?= $outStock; ?>],
-            backgroundColor: ['#dc3545', '#6c757d']
+            data: [
+                <?= max(0, $totalInventory - $lowStockCount - $outOfStockCount); ?>, 
+                <?= $lowStockCount; ?>, 
+                <?= $outOfStockCount; ?>
+            ],
+            backgroundColor: ['#10b981', '#f59e0b', '#ef4444'],
+            borderWidth: 0
         }]
     },
-    options: { responsive: true }
-});
-
-new Chart(document.getElementById("inboundChart"), {
-    type: "line",
-    data: {
-        labels: <?= json_encode($inboundLabels); ?>,
-        datasets: [{
-            label: "Inbound",
-            data: <?= json_encode($inboundData); ?>,
-            borderColor: "#198754",
-            tension: 0.4,
-            fill: false
-        }]
-    },
-    options: { responsive: true }
-});
-
-new Chart(document.getElementById("outboundChart"), {
-    type: "line",
-    data: {
-        labels: <?= json_encode($outboundLabels); ?>,
-        datasets: [{
-            label: "Outbound",
-            data: <?= json_encode($outboundData); ?>,
-            borderColor: "#dc3545",
-            tension: 0.4,
-            fill: false
-        }]
-    },
-    options: { responsive: true }
+    options: {
+        responsive: true,
+        plugins: {
+            legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } }
+        },
+        cutout: '72%'
+    }
 });
 </script>
+
+<?php include $projectRoot . "/includes/footer.php"; ?>

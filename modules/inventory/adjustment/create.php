@@ -1,170 +1,227 @@
 <?php
-session_start();
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
+$projectRoot = file_exists(__DIR__ . "/../../../config/database.php") ? dirname(__DIR__, 3) : dirname(__DIR__, 4);
 
 if (!isset($_SESSION['employee_id'])) {
-    header("Location: ../../../login.php");
+    header("Location: /vortex_wms/login.php");
     exit();
 }
 
-require_once "../../../config/database.php";
+require_once $projectRoot . "/config/database.php";
 
-// Clean Query: Directly uses inventory table columns without missing ID references
-$products = mysqli_query($conn, "
+// Dynamic Warehouse Table Check
+$whTable = "warehouse";
+$chkTable = @mysqli_query($conn, "SHOW TABLES LIKE 'warehouse'");
+if (!$chkTable || mysqli_num_rows($chkTable) == 0) {
+    $whTable = "warehouses";
+}
+
+$nameCol = "warehouse_name";
+$cChk = @mysqli_query($conn, "SHOW COLUMNS FROM `{$whTable}` LIKE 'warehouse_name'");
+if (!$cChk || mysqli_num_rows($cChk) == 0) {
+    $nameCol = "name";
+}
+
+// Fetch Inventory Products with Detailed Join
+$query = "
     SELECT 
-        id, 
-        product_code, 
-        product_name, 
-        warehouse AS warehouse_name,
-        bin_location AS bin_code,
-        available_qty
-    FROM inventory
-    WHERE available_qty >= 0
+        i.id,
+        COALESCE(p.product_name, i.product_name, 'Stock Item') AS product_name,
+        COALESCE(p.sku, p.product_code, i.product_code, 'SKU-00') AS sku_code,
+        COALESCE(w.{$nameCol}, i.warehouse, 'Main Warehouse') AS warehouse_name,
+        COALESCE(i.bin_location, 'L0-A1') AS bin_code,
+        i.available_qty
+    FROM inventory i
+    LEFT JOIN products p ON p.id = i.product_id
+    LEFT JOIN `{$whTable}` w ON w.id = i.warehouse_id
     ORDER BY product_name ASC
-");
+";
+$products = @mysqli_query($conn, $query);
 
-include "../../../includes/header.php";
-include "../../../includes/navbar.php";
-include "../../../includes/sidebar.php";
+include $projectRoot . "/includes/header.php";
 ?>
 
-<div class="content">
-    <div class="container-fluid p-4">
+<div class="container-fluid p-0">
 
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <div>
-                <h2 class="fw-bold text-dark mb-1"><i class="fa-solid fa-sliders text-primary me-2"></i>New Stock Adjustment</h2>
-                <p class="text-muted mb-0">Manually increase or decrease item quantity with reason</p>
-            </div>
-            <a href="index.php" class="btn btn-secondary px-3"><i class="fa-solid fa-arrow-left me-1"></i> Back</a>
+    <!-- Top Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+        <div>
+            <h2 class="fw-bold text-dark mb-1">
+                <i class="fa-solid fa-sliders text-warning me-2"></i>New Stock Adjustment
+            </h2>
+            <p class="text-muted mb-0">Record physical audit discrepancies, damaged goods, or inventory corrections</p>
         </div>
-
-        <div class="card shadow-sm border-0 rounded-4 col-lg-10 mx-auto">
-            <div class="card-body p-4">
-                <form action="save.php" method="POST" id="adjustmentForm">
-                    <div class="row g-3">
-
-                        <!-- Item Select -->
-                        <div class="col-md-6">
-                            <label for="inventory_id" class="form-label fw-semibold">Select Inventory Product *</label>
-                            <select name="inventory_id" id="inventory_id" class="form-select" required>
-                                <option value="">-- Choose Product --</option>
-                                <?php if ($products && mysqli_num_rows($products) > 0): ?>
-                                    <?php while ($row = mysqli_fetch_assoc($products)): ?>
-                                        <option 
-                                            value="<?= htmlspecialchars($row['id']); ?>" 
-                                            data-wh="<?= htmlspecialchars($row['warehouse_name'] ?? ''); ?>" 
-                                            data-bin="<?= htmlspecialchars($row['bin_code'] ?? ''); ?>" 
-                                            data-qty="<?= htmlspecialchars($row['available_qty']); ?>">
-                                            <?= htmlspecialchars($row['product_code']); ?> - <?= htmlspecialchars($row['product_name']); ?> (Available: <?= htmlspecialchars($row['available_qty']); ?>)
-                                        </option>
-                                    <?php endwhile; ?>
-                                <?php endif; ?>
-                            </select>
-                        </div>
-
-                        <!-- Date -->
-                        <div class="col-md-6">
-                            <label for="adjustment_date" class="form-label fw-semibold">Adjustment Date *</label>
-                            <input type="date" name="adjustment_date" id="adjustment_date" class="form-control" value="<?= date('Y-m-d'); ?>" required>
-                        </div>
-
-                        <!-- Warehouse (Read Only) -->
-                        <div class="col-md-4">
-                            <label for="warehouse" class="form-label fw-semibold">Warehouse</label>
-                            <input type="text" name="warehouse" id="warehouse" class="form-control bg-light" readonly placeholder="-">
-                        </div>
-
-                        <!-- Bin Location (Read Only) -->
-                        <div class="col-md-4">
-                            <label for="bin_location" class="form-label fw-semibold">Bin Location</label>
-                            <input type="text" name="bin_location" id="bin_location" class="form-control bg-light font-monospace" readonly placeholder="-">
-                        </div>
-
-                        <!-- Available Stock (Read Only) -->
-                        <div class="col-md-4">
-                            <label for="available_qty" class="form-label fw-semibold">Current Available Qty</label>
-                            <input type="number" id="available_qty" class="form-control bg-light text-primary fw-bold" readonly placeholder="0">
-                        </div>
-
-                        <hr class="my-2">
-
-                        <!-- Adjustment Type -->
-                        <div class="col-md-6">
-                            <label for="adjustment_type" class="form-label fw-semibold">Adjustment Action *</label>
-                            <select name="adjustment_type" id="adjustment_type" class="form-select" required>
-                                <option value="Increase">➕ Increase Stock (+)</option>
-                                <option value="Decrease">➖ Decrease Stock (-)</option>
-                            </select>
-                        </div>
-
-                        <!-- Adjustment Qty -->
-                        <div class="col-md-6">
-                            <label for="quantity" class="form-label fw-semibold">Quantity to Adjust *</label>
-                            <input type="number" name="quantity" id="quantity" class="form-control" min="1" placeholder="Enter Qty" required>
-                            <div class="invalid-feedback" id="qtyError">Adjustment quantity exceeds available stock!</div>
-                        </div>
-
-                        <!-- Reason -->
-                        <div class="col-12">
-                            <label for="reason" class="form-label fw-semibold">Reason for Adjustment *</label>
-                            <textarea name="reason" id="reason" class="form-control" rows="3" placeholder="e.g. Physical audit recount, Damaged goods removal, Expiry disposal..." required></textarea>
-                        </div>
-
-                    </div>
-
-                    <hr class="my-4">
-
-                    <div class="d-flex justify-content-between">
-                        <a href="index.php" class="btn btn-outline-secondary px-3">Cancel</a>
-                        <button type="submit" id="saveBtn" class="btn btn-success px-4">
-                            <i class="fa-solid fa-floppy-disk me-1"></i> Confirm & Save
-                        </button>
-                    </div>
-                </form>
-            </div>
+        <div>
+            <a href="index.php" class="btn btn-secondary fw-bold rounded-pill px-3">
+                <i class="fa-solid fa-arrow-left me-1"></i> Back to Adjustments
+            </a>
         </div>
-
     </div>
-</div>
 
-<?php include "../../../includes/footer.php"; ?>
+    <?php if (isset($_SESSION['error'])): ?>
+        <div class="alert alert-danger alert-dismissible fade show rounded-4 border-0 shadow-sm mb-4">
+            <i class="fa-solid fa-circle-exclamation me-2"></i> <?= $_SESSION['error']; unset($_SESSION['error']); ?>
+            <button class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    <?php endif; ?>
+
+    <div class="card shadow-sm border-0 rounded-4 bg-white col-xl-9 col-lg-11 mx-auto">
+        <div class="card-body p-4">
+            
+            <form action="save.php" method="POST" id="adjustmentForm">
+                <input type="hidden" name="action" value="create">
+
+                <div class="row g-4">
+
+                    <!-- Select Product -->
+                    <div class="col-md-7">
+                        <label class="form-label small fw-bold text-muted">Select Inventory Item *</label>
+                        <select name="inventory_id" id="inventory_id" class="form-select border-2 fw-semibold" required>
+                            <option value="">-- Choose Stock Record --</option>
+                            <?php if ($products && mysqli_num_rows($products) > 0): ?>
+                                <?php while ($row = mysqli_fetch_assoc($products)): ?>
+                                    <option 
+                                        value="<?= $row['id']; ?>" 
+                                        data-wh="<?= htmlspecialchars($row['warehouse_name']); ?>" 
+                                        data-bin="<?= htmlspecialchars($row['bin_code']); ?>" 
+                                        data-qty="<?= (int)$row['available_qty']; ?>">
+                                        <?= htmlspecialchars($row['product_name']); ?> (<?= htmlspecialchars($row['sku_code']); ?>) | Bin: <?= htmlspecialchars($row['bin_code']); ?> [Available: <?= $row['available_qty']; ?>]
+                                    </option>
+                                <?php endwhile; ?>
+                            <?php endif; ?>
+                        </select>
+                    </div>
+
+                    <!-- Adjustment Date -->
+                    <div class="col-md-5">
+                        <label class="form-label small fw-bold text-muted">Adjustment Date *</label>
+                        <input type="date" name="adjustment_date" id="adjustment_date" class="form-control border-2 fw-semibold" value="<?= date('Y-m-d'); ?>" required>
+                    </div>
+
+                    <!-- Metadata Read-only Blocks -->
+                    <div class="col-md-4">
+                        <div class="p-3 bg-light rounded-4 border">
+                            <small class="text-muted d-block text-uppercase fw-semibold" style="font-size:11px;">Warehouse Facility</small>
+                            <input type="text" id="warehouse" class="form-control-plaintext fw-bold text-dark py-0" readonly value="-">
+                        </div>
+                    </div>
+
+                    <div class="col-md-4">
+                        <div class="p-3 bg-light rounded-4 border">
+                            <small class="text-muted d-block text-uppercase fw-semibold" style="font-size:11px;">Current Bin Coordinate</small>
+                            <input type="text" id="bin_location" class="form-control-plaintext font-monospace fw-bold text-primary py-0" readonly value="-">
+                        </div>
+                    </div>
+
+                    <div class="col-md-4">
+                        <div class="p-3 bg-light rounded-4 border border-start border-4 border-primary">
+                            <small class="text-muted d-block text-uppercase fw-semibold" style="font-size:11px;">Current Available Qty</small>
+                            <input type="text" id="available_qty" class="form-control-plaintext fs-5 fw-bold text-primary py-0" readonly value="0 Units">
+                        </div>
+                    </div>
+
+                    <!-- Action Details -->
+                    <div class="col-md-6">
+                        <label class="form-label small fw-bold text-muted">Adjustment Type *</label>
+                        <select name="adjustment_type" id="adjustment_type" class="form-select border-2 fw-bold text-dark" required>
+                            <option value="Increase" class="text-success">➕ Increase Stock (Found / Audit Surplus)</option>
+                            <option value="Decrease" class="text-danger">➖ Decrease Stock (Damaged / Missing / Write-off)</option>
+                        </select>
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label small fw-bold text-muted">Quantity to Adjust *</label>
+                        <div class="input-group">
+                            <input type="number" name="quantity" id="quantity" class="form-control border-2 fw-bold text-center fs-5" min="1" placeholder="Qty" required>
+                            <span class="input-group-text bg-light border-2">Units</span>
+                        </div>
+                        <div class="text-danger small mt-1 fw-bold" id="qtyError" style="display: none;">
+                            <i class="fa-solid fa-triangle-exclamation me-1"></i> Deduction quantity cannot exceed current available stock!
+                        </div>
+                    </div>
+
+                    <!-- Live Calculated Balance Preview -->
+                    <div class="col-12">
+                        <div class="p-3 bg-primary bg-opacity-10 rounded-4 border border-primary border-opacity-25 d-flex justify-content-between align-items-center flex-wrap gap-2">
+                            <div>
+                                <strong class="text-primary d-block">Projected New Available Balance:</strong>
+                                <small class="text-muted">Updated value after adjustment confirms</small>
+                            </div>
+                            <div class="fs-4 fw-bold font-monospace text-primary" id="newBalancePreview">0 Units</div>
+                        </div>
+                    </div>
+
+                    <!-- Reason -->
+                    <div class="col-12">
+                        <label class="form-label small fw-bold text-muted">Adjustment Reason / Audit Notes *</label>
+                        <textarea name="reason" id="reason" class="form-control border-2" rows="3" placeholder="e.g. Physical inventory cycle count correction, Damaged stock disposal, System discrepancy reconciliation..." required></textarea>
+                    </div>
+
+                </div>
+
+                <div class="mt-4 pt-3 border-top text-end d-flex justify-content-end gap-2">
+                    <a href="index.php" class="btn btn-light px-4 rounded-pill">Cancel</a>
+                    <button type="submit" id="saveBtn" class="btn btn-success px-5 fw-bold shadow-sm rounded-pill">
+                        <i class="fa-solid fa-floppy-disk me-1"></i> Confirm & Save Adjustment
+                    </button>
+                </div>
+            </form>
+
+        </div>
+    </div>
+
+</div>
 
 <script>
 document.addEventListener("DOMContentLoaded", function () {
-    const inventorySelect = document.getElementById("inventory_id");
-    const typeSelect = document.getElementById("adjustment_type");
-    const quantityInput = document.getElementById("quantity");
-    const warehouseInput = document.getElementById("warehouse");
-    const binInput = document.getElementById("bin_location");
+    const inventorySelect   = document.getElementById("inventory_id");
+    const typeSelect        = document.getElementById("adjustment_type");
+    const quantityInput     = document.getElementById("quantity");
+    const warehouseInput    = document.getElementById("warehouse");
+    const binInput          = document.getElementById("bin_location");
     const availableQtyInput = document.getElementById("available_qty");
-    const saveBtn = document.getElementById("saveBtn");
-    const qtyError = document.getElementById("qtyError");
+    const newBalancePreview = document.getElementById("newBalancePreview");
+    const saveBtn           = document.getElementById("saveBtn");
+    const qtyError          = document.getElementById("qtyError");
 
-    function validateQuantity() {
+    let currentStock = 0;
+
+    function recalculate() {
         const type = typeSelect.value;
-        const available = parseInt(availableQtyInput.value) || 0;
         const qty = parseInt(quantityInput.value) || 0;
 
-        if (type === "Decrease" && qty > available) {
+        if (type === "Decrease" && qty > currentStock) {
             quantityInput.classList.add("is-invalid");
             qtyError.style.display = "block";
             saveBtn.disabled = true;
+            newBalancePreview.innerText = "Invalid (Below 0)";
+            newBalancePreview.className = "fs-4 fw-bold font-monospace text-danger";
         } else {
             quantityInput.classList.remove("is-invalid");
             qtyError.style.display = "none";
             saveBtn.disabled = false;
+
+            const finalBalance = (type === "Increase") ? (currentStock + qty) : (currentStock - qty);
+            newBalancePreview.innerText = finalBalance + " Units";
+            newBalancePreview.className = "fs-4 fw-bold font-monospace text-primary";
         }
     }
 
     inventorySelect.addEventListener("change", function () {
         const option = this.options[this.selectedIndex];
-        warehouseInput.value = option.getAttribute("data-wh") || "";
-        binInput.value = option.getAttribute("data-bin") || "";
-        availableQtyInput.value = option.getAttribute("data-qty") || "0";
-        validateQuantity();
+        warehouseInput.value = option.getAttribute("data-wh") || "-";
+        binInput.value = option.getAttribute("data-bin") || "-";
+        currentStock = parseInt(option.getAttribute("data-qty")) || 0;
+        availableQtyInput.value = currentStock + " Units";
+        recalculate();
     });
 
-    typeSelect.addEventListener("change", validateQuantity);
-    quantityInput.addEventListener("input", validateQuantity);
+    typeSelect.addEventListener("change", recalculate);
+    quantityInput.addEventListener("input", recalculate);
 });
 </script>
+
+<?php include $projectRoot . "/includes/footer.php"; ?>

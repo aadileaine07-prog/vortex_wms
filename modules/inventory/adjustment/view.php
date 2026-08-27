@@ -1,92 +1,204 @@
 <?php
-session_start();
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
+$projectRoot = file_exists(__DIR__ . "/../../../config/database.php") ? dirname(__DIR__, 3) : dirname(__DIR__, 4);
 
 if (!isset($_SESSION['employee_id'])) {
-    header("Location: ../../../login.php");
+    header("Location: /vortex_wms/login.php");
     exit();
 }
 
-require_once "../../../config/database.php";
+require_once $projectRoot . "/config/database.php";
 
-if (!isset($_GET['id'])) {
-    die("Adjustment ID Missing");
+if (!isset($_GET['id']) || empty($_GET['id'])) {
+    $_SESSION['error'] = "Stock Adjustment ID is missing.";
+    header("Location: index.php");
+    exit();
 }
 
 $id = intval($_GET['id']);
 
-$result = mysqli_query($conn, "SELECT * FROM stock_adjustment WHERE id='$id'");
+// 1. Dynamic Table Detection
+$adjTable = "stock_adjustments";
+$chkTable = @mysqli_query($conn, "SHOW TABLES LIKE 'stock_adjustments'");
+if (!$chkTable || mysqli_num_rows($chkTable) == 0) {
+    $chkTable2 = @mysqli_query($conn, "SHOW TABLES LIKE 'stock_adjustment'");
+    if ($chkTable2 && mysqli_num_rows($chkTable2) > 0) {
+        $adjTable = "stock_adjustment";
+    } else {
+        $adjTable = "inventory_adjustments";
+    }
+}
 
-if (mysqli_num_rows($result) == 0) {
-    die("Adjustment Record Not Found");
+// 2. Dynamic Warehouse Table
+$whTable = "warehouse";
+$chkWh = @mysqli_query($conn, "SHOW TABLES LIKE 'warehouse'");
+if (!$chkWh || mysqli_num_rows($chkWh) == 0) {
+    $whTable = "warehouses";
+}
+
+$whNameCol = "warehouse_name";
+$cChk = @mysqli_query($conn, "SHOW COLUMNS FROM `{$whTable}` LIKE 'warehouse_name'");
+if (!$cChk || mysqli_num_rows($cChk) == 0) {
+    $whNameCol = "name";
+}
+
+// 3. Detect Available Columns in Adjustment Table
+$adjCols = [];
+$cRes = @mysqli_query($conn, "SHOW COLUMNS FROM `{$adjTable}`");
+if ($cRes) {
+    while ($c = mysqli_fetch_assoc($cRes)) { $adjCols[] = strtolower($c['Field']); }
+}
+
+$typeCol   = in_array('adjustment_type', $adjCols) ? 'adjustment_type' : (in_array('type', $adjCols) ? 'type' : "'Increase'");
+$dateCol   = in_array('adjustment_date', $adjCols) ? 'adjustment_date' : (in_array('created_at', $adjCols) ? 'created_at' : "NOW()");
+$reasonCol = in_array('reason', $adjCols) ? 'reason' : "''";
+$userCol   = in_array('created_by', $adjCols) ? 'created_by' : (in_array('adjusted_by', $adjCols) ? 'adjusted_by' : "'1'");
+
+// 4. Fetch Adjustment Record with Joins
+$query = "
+    SELECT 
+        a.id,
+        a.{$typeCol} AS adjustment_type,
+        a.quantity,
+        a.{$dateCol} AS adjustment_date,
+        a.{$reasonCol} AS reason,
+        a.{$userCol} AS user_identifier,
+        COALESCE(p.product_name, i.product_name, 'Stock Item') AS final_product_name,
+        COALESCE(p.sku, p.product_code, i.product_code, 'SKU-00') AS final_sku,
+        COALESCE(p.category, 'General') AS product_category,
+        COALESCE(w.{$whNameCol}, i.warehouse, 'Main Facility') AS final_warehouse,
+        COALESCE(i.bin_location, 'L0-A1') AS final_bin,
+        i.available_qty AS current_stock_balance,
+        e.full_name AS employee_name
+    FROM `{$adjTable}` a
+    LEFT JOIN inventory i ON i.id = a.inventory_id
+    LEFT JOIN products p ON (p.id = a.product_id OR p.id = i.product_id)
+    LEFT JOIN `{$whTable}` w ON w.id = i.warehouse_id
+    LEFT JOIN employees e ON (e.id = a.{$userCol} OR e.employee_id = a.{$userCol})
+    WHERE a.id = $id
+    LIMIT 1
+";
+
+$result = @mysqli_query($conn, $query);
+
+if (!$result || mysqli_num_rows($result) == 0) {
+    $_SESSION['error'] = "Adjustment record #{$id} not found.";
+    header("Location: index.php");
+    exit();
 }
 
 $row = mysqli_fetch_assoc($result);
+$isIncrease = (strcasecmp($row['adjustment_type'], 'Increase') === 0);
 
-include "../../../includes/header.php";
-include "../../../includes/navbar.php";
-include "../../../includes/sidebar.php";
+include $projectRoot . "/includes/header.php";
 ?>
 
-<div class="content">
-    <div class="container-fluid p-4">
+<div class="container-fluid p-0">
 
-        <div class="card shadow-sm border-0 rounded-4 col-lg-8 mx-auto">
-            <div class="card-header bg-primary text-white p-3 rounded-top-4 d-flex justify-content-between align-items-center">
-                <h4 class="mb-0 fw-bold"><i class="fa-solid fa-file-lines me-2"></i>Stock Adjustment Summary</h4>
-                <span class="badge bg-light text-primary fs-6">ID #<?= $row['id']; ?></span>
+    <!-- Top Navigation Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+        <div>
+            <h2 class="fw-bold text-dark mb-1">
+                <i class="fa-solid fa-file-lines text-primary me-2"></i>Stock Adjustment Voucher
+            </h2>
+            <p class="text-muted mb-0">Audit Record Reference: <code class="fw-bold text-primary font-monospace">#<?= $row['id']; ?></code></p>
+        </div>
+        <div class="d-flex gap-2">
+            <button type="button" onclick="window.print();" class="btn btn-outline-dark fw-bold rounded-pill px-3 shadow-sm">
+                <i class="fa-solid fa-print me-1"></i> Print Voucher
+            </button>
+            <a href="create.php" class="btn btn-warning fw-bold text-dark rounded-pill px-3 shadow-sm">
+                <i class="fa-solid fa-plus me-1"></i> New Adjustment
+            </a>
+            <a href="index.php" class="btn btn-secondary fw-bold rounded-pill px-3">
+                <i class="fa-solid fa-arrow-left me-1"></i> Back to Ledger
+            </a>
+        </div>
+    </div>
+
+    <!-- Voucher Details Card -->
+    <div class="card shadow-sm border-0 rounded-4 bg-white col-xl-9 col-lg-11 mx-auto">
+        <div class="card-header bg-white border-0 pt-4 px-4 pb-0 d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div>
+                <span class="badge <?= $isIncrease ? 'bg-success-subtle text-success border border-success-subtle' : 'bg-danger-subtle text-danger border border-danger-subtle'; ?> fs-6 px-3 py-2 rounded-pill fw-bold">
+                    <i class="fa-solid <?= $isIncrease ? 'fa-arrow-up' : 'fa-arrow-down'; ?> me-1"></i>
+                    <?= $isIncrease ? 'SURPLUS STOCK INCREASE (+)' : 'DEFICIT STOCK DECREASE (-)'; ?>
+                </span>
             </div>
-
-            <div class="card-body p-4">
-                <table class="table table-bordered align-middle">
-                    <tr>
-                        <th width="30%" class="bg-light">Product Info</th>
-                        <td>
-                            <strong><?= htmlspecialchars($row['product_name']); ?></strong><br>
-                            <span class="badge bg-secondary font-monospace"><?= htmlspecialchars($row['product_code']); ?></span>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th class="bg-light">Location</th>
-                        <td>
-                            <strong>Warehouse:</strong> <?= htmlspecialchars($row['warehouse']); ?> | 
-                            <strong>Bin:</strong> <code><?= htmlspecialchars($row['bin_location']); ?></code>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th class="bg-light">Adjustment Action</th>
-                        <td>
-                            <?php if ($row['adjustment_type'] == "Increase"): ?>
-                                <span class="badge bg-success px-3 py-2"><i class="fa-solid fa-arrow-up me-1"></i> Increase (+<?= $row['quantity']; ?>)</span>
-                            <?php else: ?>
-                                <span class="badge bg-danger px-3 py-2"><i class="fa-solid fa-arrow-down me-1"></i> Decrease (-<?= $row['quantity']; ?>)</span>
-                            <?php endif; ?>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th class="bg-light">Reason</th>
-                        <td><?= !empty($row['reason']) ? nl2br(htmlspecialchars($row['reason'])) : "<em class='text-muted'>No reason provided</em>"; ?></td>
-                    </tr>
-                    <tr>
-                        <th class="bg-light">Adjustment Date</th>
-                        <td><?= date("d M Y", strtotime($row['adjustment_date'])); ?></td>
-                    </tr>
-                    <tr>
-                        <th class="bg-light">Logged By</th>
-                        <td>Employee ID #<?= htmlspecialchars($row['created_by']); ?></td>
-                    </tr>
-                </table>
-
-                <div class="d-flex justify-content-between align-items-center mt-4">
-                    <a href="index.php" class="btn btn-outline-secondary px-3"><i class="fa-solid fa-arrow-left me-1"></i> Back to List</a>
-                    <div>
-                        <button type="button" onclick="window.print();" class="btn btn-outline-primary me-2"><i class="fa-solid fa-print me-1"></i> Print Voucher</button>
-                        <a href="create.php" class="btn btn-success"><i class="fa-solid fa-plus me-1"></i> New Adjustment</a>
-                    </div>
-                </div>
+            <div class="text-muted small">
+                <i class="fa-regular fa-calendar me-1"></i> Transaction Date: <strong><?= date("d M Y", strtotime($row['adjustment_date'])); ?></strong>
             </div>
         </div>
 
+        <div class="card-body p-4">
+            <div class="table-responsive">
+                <table class="table table-bordered align-middle mb-0">
+                    <tbody>
+                        <tr>
+                            <th width="30%" class="bg-light text-muted small fw-bold text-uppercase">Catalog Product</th>
+                            <td>
+                                <strong class="fs-6 text-dark d-block"><?= htmlspecialchars($row['final_product_name']); ?></strong>
+                                <code class="text-primary font-monospace fw-bold"><?= htmlspecialchars($row['final_sku']); ?></code>
+                                <span class="badge bg-light text-secondary border ms-1"><?= htmlspecialchars($row['product_category']); ?></span>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th class="bg-light text-muted small fw-bold text-uppercase">Storage Location</th>
+                            <td>
+                                <div><strong>Facility:</strong> <?= htmlspecialchars($row['final_warehouse']); ?></div>
+                                <div class="mt-1"><strong>Assigned Bin:</strong> <span class="badge bg-primary-subtle text-primary border border-primary-subtle font-monospace fs-6 px-2 py-1"><?= htmlspecialchars($row['final_bin']); ?></span></div>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th class="bg-light text-muted small fw-bold text-uppercase">Adjusted Units</th>
+                            <td>
+                                <span class="badge <?= $isIncrease ? 'bg-success' : 'bg-danger'; ?> fs-5 px-3 py-2 rounded-pill font-monospace">
+                                    <?= $isIncrease ? '+' : '-'; ?><?= (int)$row['quantity']; ?> Units
+                                </span>
+                                <?php if (isset($row['current_stock_balance'])): ?>
+                                    <small class="text-muted ms-2">(Current Live Available: <strong><?= (int)$row['current_stock_balance']; ?> Units</strong>)</small>
+                                <?php endif; ?>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th class="bg-light text-muted small fw-bold text-uppercase">Adjustment Reason / Notes</th>
+                            <td>
+                                <div class="p-3 bg-light rounded-3 text-dark">
+                                    <?= !empty($row['reason']) ? nl2br(htmlspecialchars($row['reason'])) : "<em class='text-muted'>No reason specified for this transaction.</em>"; ?>
+                                </div>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th class="bg-light text-muted small fw-bold text-uppercase">Authorized / Logged By</th>
+                            <td>
+                                <div class="fw-semibold text-dark">
+                                    <i class="fa-solid fa-user-check text-success me-1"></i>
+                                    <?= htmlspecialchars($row['employee_name'] ?? 'System Administrator'); ?>
+                                </div>
+                                <small class="text-muted font-monospace">Auth ID: <?= htmlspecialchars($row['user_identifier']); ?></small>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Bottom Action Footer -->
+            <div class="d-flex justify-content-between align-items-center mt-4 pt-3 border-top flex-wrap gap-2">
+                <a href="index.php" class="btn btn-outline-secondary rounded-pill px-4">
+                    <i class="fa-solid fa-arrow-left me-1"></i> Back to Adjustments
+                </a>
+                <div class="d-flex gap-2">
+                    <a href="delete.php?id=<?= $row['id']; ?>" class="btn btn-outline-danger rounded-pill px-3" onclick="return confirm('Revert stock changes and delete this adjustment voucher?');">
+                        <i class="fa-solid fa-trash me-1"></i> Revert & Delete
+                    </a>
+                </div>
+            </div>
+        </div>
     </div>
+
 </div>
 
-<?php include "../../../includes/footer.php"; ?>
+<?php include $projectRoot . "/includes/footer.php"; ?>

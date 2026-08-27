@@ -1,157 +1,141 @@
 <?php
-session_start();
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
 
-// Dynamic Project Root (Auto-detects depth regardless of folder structure)
 $projectRoot = file_exists(__DIR__ . "/../../config/database.php") ? dirname(__DIR__, 2) : dirname(__DIR__, 3);
 
-if (!isset($_SESSION['employee_id'])) { 
-    header("Location: /vortex_wms/login.php"); 
-    exit(); 
+if (!isset($_SESSION['employee_id'])) {
+    header("Location: /vortex_wms/login.php");
+    exit();
 }
 
 require_once $projectRoot . "/config/database.php";
 
-// Safe Query: Uses exact column names from your inventory table (product_code, product_name, available_qty)
-$abc_data = mysqli_query($conn, "
+// Fetch inventory data with product price
+$productsQuery = @mysqli_query($conn, "
     SELECT 
-        id,
-        COALESCE(product_code, 'N/A') AS sku, 
-        COALESCE(product_name, 'Unnamed Item') AS item_name, 
-        COALESCE(warehouse, 'N/A') AS warehouse,
-        COALESCE(bin_location, 'N/A') AS bin_location,
-        COALESCE(available_qty, 0) AS quantity,
-        CASE 
-            WHEN COALESCE(available_qty, 0) >= 500 THEN 'A (Fast Moving)'
-            WHEN COALESCE(available_qty, 0) >= 100 THEN 'B (Moderate)'
-            ELSE 'C (Slow Moving)'
-        END as abc_category
-    FROM inventory 
-    ORDER BY available_qty DESC
+        p.id, p.product_name, p.sku,
+        IFNULL(p.unit_price, 25.00) as unit_price,
+        IFNULL(SUM(i.available_qty), 0) as total_qty,
+        (IFNULL(p.unit_price, 25.00) * IFNULL(SUM(i.available_qty), 0)) as total_value
+    FROM products p
+    LEFT JOIN inventory i ON i.product_id = p.id
+    GROUP BY p.id
+    ORDER BY total_value DESC
 ");
 
-// Calculate Category Counts for Summary Cards
-$catA_count = 0;
-$catB_count = 0;
-$catC_count = 0;
+$items = [];
+$grandTotal = 0;
 
-$rows = [];
-if ($abc_data && mysqli_num_rows($abc_data) > 0) {
-    while ($r = mysqli_fetch_assoc($abc_data)) {
-        $rows[] = $r;
-        if (str_starts_with($r['abc_category'], 'A')) $catA_count++;
-        elseif (str_starts_with($r['abc_category'], 'B')) $catB_count++;
-        else $catC_count++;
+if ($productsQuery) {
+    while ($r = mysqli_fetch_assoc($productsQuery)) {
+        $grandTotal += (float)$r['total_value'];
+        $items[] = $r;
     }
 }
 
+// Assign ABC Categories based on cumulative value
+$runningTotal = 0;
+foreach ($items as &$it) {
+    $runningTotal += (float)$it['total_value'];
+    $cumPct = ($grandTotal > 0) ? ($runningTotal / $grandTotal) * 100 : 0;
+    
+    if ($cumPct <= 75) {
+        $it['class'] = 'A';
+        $it['badge'] = 'bg-success';
+        $it['strategy'] = 'Fast-Moving / L0-Aisle Front';
+    } elseif ($cumPct <= 95) {
+        $it['class'] = 'B';
+        $it['badge'] = 'bg-warning text-dark';
+        $it['strategy'] = 'Standard Velocity / L1-L2 Shelves';
+    } else {
+        $it['class'] = 'C';
+        $it['badge'] = 'bg-danger';
+        $it['strategy'] = 'Slow Mover / Deep Reserve';
+    }
+}
+unset($it);
+
 include $projectRoot . "/includes/header.php";
-include $projectRoot . "/includes/navbar.php";
-include $projectRoot . "/includes/sidebar.php";
 ?>
 
-<div class="content">
-    <div class="container-fluid p-4">
-
-        <!-- Header -->
-        <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
-            <div>
-                <h2 class="fw-bold mb-1"><i class="fa-solid fa-chart-pie text-primary me-2"></i>ABC Inventory Velocity Report</h2>
-                <p class="text-muted mb-0">Fast-moving vs Slow-moving Stock Analysis based on available stock quantity</p>
-            </div>
-            <a href="../index.php" class="btn btn-outline-secondary px-3"><i class="fa-solid fa-arrow-left me-1"></i> Back to Inventory</a>
+<div class="container-fluid p-0">
+    <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+        <div>
+            <h2 class="fw-bold text-dark mb-1"><i class="fa-solid fa-chart-pie text-danger me-2"></i>ABC Inventory Velocity Classification</h2>
+            <p class="text-muted mb-0">Pareto 80/20 Value Analysis: Optimize putaway placement based on stock turnover</p>
         </div>
+        <button onclick="window.print()" class="btn btn-outline-danger rounded-pill px-3 shadow-sm"><i class="fa-solid fa-print me-1"></i> Print Matrix</button>
+    </div>
 
-        <!-- Summary KPI Cards -->
-        <div class="row g-3 mb-4">
-            <div class="col-md-4">
-                <div class="card shadow-sm border-0 rounded-4 bg-success text-white p-3">
-                    <div class="d-flex justify-content-between align-items-center">
-                        <div>
-                            <small class="text-uppercase fw-semibold text-white-50">Category A (Fast Moving)</small>
-                            <h2 class="fw-bold mb-0 mt-1"><?= $catA_count; ?> Items</h2>
-                            <small>Stock ≥ 500 Units</small>
-                        </div>
-                        <i class="fa-solid fa-bolt fa-3x opacity-50"></i>
-                    </div>
+    <!-- Strategy Cards -->
+    <div class="row g-4 mb-4">
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm rounded-4 p-3 border-start border-4 border-success bg-white">
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <h6 class="fw-bold text-success mb-0">Class A (Top 70-80% Value)</h6>
+                    <span class="badge bg-success rounded-pill">Priority 1</span>
                 </div>
-            </div>
-
-            <div class="col-md-4">
-                <div class="card shadow-sm border-0 rounded-4 bg-warning text-dark p-3">
-                    <div class="d-flex justify-content-between align-items-center">
-                        <div>
-                            <small class="text-uppercase fw-semibold text-dark-50">Category B (Moderate)</small>
-                            <h2 class="fw-bold mb-0 mt-1"><?= $catB_count; ?> Items</h2>
-                            <small>Stock 100 - 499 Units</small>
-                        </div>
-                        <i class="fa-solid fa-gauge-simple-high fa-3x opacity-50"></i>
-                    </div>
-                </div>
-            </div>
-
-            <div class="col-md-4">
-                <div class="card shadow-sm border-0 rounded-4 bg-secondary text-white p-3">
-                    <div class="d-flex justify-content-between align-items-center">
-                        <div>
-                            <small class="text-uppercase fw-semibold text-white-50">Category C (Slow Moving)</small>
-                            <h2 class="fw-bold mb-0 mt-1"><?= $catC_count; ?> Items</h2>
-                            <small>Stock &lt; 100 Units</small>
-                        </div>
-                        <i class="fa-solid fa-turtle fa-3x opacity-50"></i>
-                    </div>
-                </div>
+                <small class="text-muted">High turnover items. Position at ground level (L0) near packing & outbound docks.</small>
             </div>
         </div>
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm rounded-4 p-3 border-start border-4 border-warning bg-white">
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <h6 class="fw-bold text-warning mb-0">Class B (15-20% Value)</h6>
+                    <span class="badge bg-warning text-dark rounded-pill">Priority 2</span>
+                </div>
+                <small class="text-muted">Moderate volume. Position in middle levels (L1/L2) and secondary aisles.</small>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm rounded-4 p-3 border-start border-4 border-danger bg-white">
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <h6 class="fw-bold text-danger mb-0">Class C (Top 5% Value)</h6>
+                    <span class="badge bg-danger rounded-pill">Priority 3</span>
+                </div>
+                <small class="text-muted">Slow-moving stock. Position on upper vertical shelves (L3/L4) or deep storage.</small>
+            </div>
+        </div>
+    </div>
 
-        <!-- Table Card -->
-        <div class="card shadow-sm border-0 rounded-4">
-            <div class="card-body p-4">
-                <div class="table-responsive">
-                    <table class="table table-hover align-middle border">
-                        <thead class="table-dark">
-                            <tr>
-                                <th>SKU / Code</th>
-                                <th>Item Name</th>
-                                <th>Warehouse</th>
-                                <th>Bin Location</th>
-                                <th width="140">Available Qty</th>
-                                <th width="220">ABC Velocity Category</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php if (!empty($rows)): ?>
-                                <?php foreach ($rows as $row): ?>
-                                    <tr>
-                                        <td><span class="badge bg-secondary font-monospace fs-6"><?= htmlspecialchars($row['sku']); ?></span></td>
-                                        <td><strong><?= htmlspecialchars($row['item_name']); ?></strong></td>
-                                        <td><?= htmlspecialchars($row['warehouse']); ?></td>
-                                        <td><code><?= htmlspecialchars($row['bin_location']); ?></code></td>
-                                        <td><span class="fw-bold text-primary fs-6"><?= number_format($row['quantity']); ?></span></td>
-                                        <td>
-                                            <?php if (str_starts_with($row['abc_category'], 'A')): ?>
-                                                <span class="badge bg-success px-3 py-2 fs-6"><i class="fa-solid fa-bolt me-1"></i> Category A (Fast)</span>
-                                            <?php elseif (str_starts_with($row['abc_category'], 'B')): ?>
-                                                <span class="badge bg-warning text-dark px-3 py-2 fs-6"><i class="fa-solid fa-gauge-simple-high me-1"></i> Category B (Moderate)</span>
-                                            <?php else: ?>
-                                                <span class="badge bg-secondary px-3 py-2 fs-6"><i class="fa-solid fa-turtle me-1"></i> Category C (Slow)</span>
-                                            <?php endif; ?>
-                                        </td>
-                                    </tr>
-                                <?php endforeach; ?>
-                            <?php else: ?>
+    <!-- ABC Products Table -->
+    <div class="card shadow-sm border-0 rounded-4 bg-white">
+        <div class="card-body p-4">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Class</th>
+                            <th>SKU</th>
+                            <th>Product Name</th>
+                            <th>Unit Price</th>
+                            <th>In-Stock Qty</th>
+                            <th>Total Stock Value</th>
+                            <th>Placement Strategy</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php if (!empty($items)): ?>
+                            <?php foreach ($items as $row): ?>
                                 <tr>
-                                    <td colspan="6" class="text-center py-5 text-muted">
-                                        <i class="fa-solid fa-box-open fs-2 mb-2 d-block"></i>
-                                        No Inventory Items Found
-                                    </td>
+                                    <td><span class="badge <?= $row['badge']; ?> px-3 py-1 rounded-pill fw-bold fs-6">Class <?= $row['class']; ?></span></td>
+                                    <td><code class="fw-bold text-dark font-monospace"><?= htmlspecialchars($row['sku']); ?></code></td>
+                                    <td class="fw-semibold text-dark"><?= htmlspecialchars($row['product_name']); ?></td>
+                                    <td>$<?= number_format((float)$row['unit_price'], 2); ?></td>
+                                    <td class="fw-bold"><?= number_format((int)$row['total_qty']); ?></td>
+                                    <td class="fw-bold text-success">$<?= number_format((float)$row['total_value'], 2); ?></td>
+                                    <td><small class="badge bg-light text-secondary border"><?= $row['strategy']; ?></small></td>
                                 </tr>
-                            <?php endif; ?>
-                        </tbody>
-                    </table>
-                </div>
+                            <?php endforeach; ?>
+                        <?php else: ?>
+                            <tr><td colspan="7" class="text-center py-4 text-muted">No product items available for ABC calculation.</td></tr>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
             </div>
         </div>
-
     </div>
 </div>
 

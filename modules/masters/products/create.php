@@ -15,16 +15,16 @@ if (!isset($_SESSION['employee_id'])) {
 
 require_once $projectRoot . "/config/database.php";
 
-if (!isset($_GET['id']) || empty($_GET['id'])) {
-    $_SESSION['error'] = "Product identifier is missing.";
-    header("Location: index.php");
-    exit();
-}
+/* ==========================================================================
+   1. AUTO-GENERATE UNIQUE PRODUCT / SKU CODE
+   ========================================================================== */
 
-$id = intval($_GET['id']);
+$autoQuery = @mysqli_query($conn, "SELECT id FROM products ORDER BY id DESC LIMIT 1");
+$nextId = ($autoQuery && mysqli_num_rows($autoQuery) > 0) ? (mysqli_fetch_assoc($autoQuery)['id'] + 1) : 1;
+$default_code = "PRD-" . str_pad($nextId, 4, "0", STR_PAD_LEFT);
 
 /* ==========================================================================
-   1. DYNAMIC COLUMN DETECTION (products table)
+   2. DYNAMIC COLUMN DETECTION (products table)
    ========================================================================== */
 
 $pCols = [];
@@ -36,30 +36,10 @@ if ($cRes) {
 }
 
 /* ==========================================================================
-   2. FETCH CURRENT PRODUCT RECORD
+   3. HANDLE PRODUCT REGISTRATION FORM SUBMISSION
    ========================================================================== */
 
-$product = mysqli_query($conn, "SELECT * FROM products WHERE id = '$id' LIMIT 1");
-
-if (!$product || mysqli_num_rows($product) === 0) {
-    $_SESSION['error'] = "Product record #{$id} not found.";
-    header("Location: index.php");
-    exit();
-}
-
-$row = mysqli_fetch_assoc($product);
-
-// Dynamic Field Value Fallbacks
-$currentCode  = $row['product_code'] ?? ($row['sku'] ?? '');
-$currentPrice = $row['selling_price'] ?? ($row['unit_price'] ?? ($row['price'] ?? 0.00));
-$currentMrp   = $row['mrp'] ?? ($row['cost_price'] ?? 0.00);
-$currentUom   = $row['uom'] ?? ($row['unit'] ?? 'PCS');
-
-/* ==========================================================================
-   3. HANDLE PRODUCT UPDATE FORM SUBMISSION
-   ========================================================================== */
-
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update'])) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save'])) {
 
     $product_code  = mysqli_real_escape_string($conn, strtoupper(trim($_POST['product_code'] ?? '')));
     $product_name  = mysqli_real_escape_string($conn, trim($_POST['product_name'] ?? ''));
@@ -71,41 +51,71 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update'])) {
     $status        = mysqli_real_escape_string($conn, trim($_POST['status'] ?? 'Active'));
 
     if (empty($product_code) || empty($product_name)) {
-        $_SESSION['error'] = "Product SKU Code and Product Title cannot be empty.";
+        $_SESSION['error'] = "Product SKU Code and Product Title are mandatory.";
     } else {
-        // Unique SKU Collision Check for other products
+        // Unique SKU Validation
         $codeCol = in_array('sku', $pCols) ? 'sku' : 'product_code';
-        $dupCheck = mysqli_query($conn, "SELECT id FROM products WHERE {$codeCol} = '$product_code' AND id != '$id' LIMIT 1");
+        $check = mysqli_query($conn, "SELECT id FROM products WHERE {$codeCol} = '$product_code' LIMIT 1");
 
-        if ($dupCheck && mysqli_num_rows($dupCheck) > 0) {
-            $_SESSION['error'] = "Product Code / SKU <strong>{$product_code}</strong> is already assigned to another catalog item.";
+        if ($check && mysqli_num_rows($check) > 0) {
+            $_SESSION['error'] = "Product SKU Code <strong>{$product_code}</strong> already exists in the catalog! Please use a unique SKU.";
         } else {
-            $updates = [
-                "`product_name` = '$product_name'",
-                "`status` = '$status'"
-            ];
+            $fields = ["`product_name`", "`status`"];
+            $values = ["'$product_name'", "'$status'"];
 
-            if (in_array('product_code', $pCols)) { $updates[] = "`product_code` = '$product_code'"; }
-            if (in_array('sku', $pCols))          { $updates[] = "`sku` = '$product_code'"; }
-            if (in_array('category', $pCols))     { $updates[] = "`category` = '$category'"; }
-            if (in_array('brand', $pCols))        { $updates[] = "`brand` = '$brand'"; }
-            if (in_array('uom', $pCols))          { $updates[] = "`uom` = '$uom'"; }
-            elseif (in_array('unit', $pCols))     { $updates[] = "`unit` = '$uom'"; }
-            if (in_array('mrp', $pCols))          { $updates[] = "`mrp` = '$mrp'"; }
-            if (in_array('selling_price', $pCols)){ $updates[] = "`selling_price` = '$selling_price'"; }
-            if (in_array('unit_price', $pCols))   { $updates[] = "`unit_price` = '$selling_price'"; }
-            if (in_array('price', $pCols) && !in_array('unit_price', $pCols) && !in_array('selling_price', $pCols)) {
-                $updates[] = "`price` = '$selling_price'";
+            // Handle SKU / Product Code
+            if (in_array('sku', $pCols)) {
+                $fields[] = "`sku`";
+                $values[] = "'$product_code'";
+            }
+            if (in_array('product_code', $pCols)) {
+                $fields[] = "`product_code`";
+                $values[] = "'$product_code'";
             }
 
-            $updateSql = "UPDATE products SET " . implode(", ", $updates) . " WHERE id = '$id'";
+            // Category & Brand
+            if (in_array('category', $pCols)) {
+                $fields[] = "`category`";
+                $values[] = "'$category'";
+            }
+            if (in_array('brand', $pCols)) {
+                $fields[] = "`brand`";
+                $values[] = "'$brand'";
+            }
+            if (in_array('uom', $pCols)) {
+                $fields[] = "`uom`";
+                $values[] = "'$uom'";
+            } elseif (in_array('unit', $pCols)) {
+                $fields[] = "`unit`";
+                $values[] = "'$uom'";
+            }
 
-            if (mysqli_query($conn, $updateSql)) {
-                $_SESSION['success'] = "Product <strong>{$product_name}</strong> updated successfully.";
+            // Prices
+            if (in_array('mrp', $pCols)) {
+                $fields[] = "`mrp`";
+                $values[] = "'$mrp'";
+            }
+            if (in_array('selling_price', $pCols)) {
+                $fields[] = "`selling_price`";
+                $values[] = "'$selling_price'";
+            }
+            if (in_array('unit_price', $pCols)) {
+                $fields[] = "`unit_price`";
+                $values[] = "'$selling_price'";
+            }
+            if (in_array('price', $pCols) && !in_array('unit_price', $pCols) && !in_array('selling_price', $pCols)) {
+                $fields[] = "`price`";
+                $values[] = "'$selling_price'";
+            }
+
+            $sql = "INSERT INTO products (" . implode(", ", $fields) . ") VALUES (" . implode(", ", $values) . ")";
+
+            if (mysqli_query($conn, $sql)) {
+                $_SESSION['success'] = "Product <strong>{$product_name}</strong> (<code>{$product_code}</code>) registered successfully.";
                 header("Location: index.php");
                 exit();
             } else {
-                $_SESSION['error'] = "Failed to update product: " . mysqli_error($conn);
+                $_SESSION['error'] = "Failed to add product: " . mysqli_error($conn);
             }
         }
     }
@@ -121,15 +131,12 @@ include $projectRoot . "/includes/header.php";
     <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
         <div>
             <h2 class="fw-bold text-dark mb-1">
-                <i class="fa-solid fa-pen-to-square text-warning me-2"></i>Edit Product SKU
+                <i class="fa-solid fa-box-open text-primary me-2"></i>Add New Product (SKU)
             </h2>
-            <p class="text-muted mb-0">Modifying catalog item: <strong><?= htmlspecialchars($row['product_name']); ?></strong> (<code class="fw-bold text-primary font-monospace">#<?= $row['id']; ?></code>)</p>
+            <p class="text-muted mb-0">Master Catalog: Register a new trade SKU, define pricing tiers, and assign classification</p>
         </div>
-        <div class="d-flex gap-2">
-            <a href="view.php?id=<?= $row['id']; ?>" class="btn btn-outline-info fw-bold rounded-pill px-3 shadow-sm">
-                <i class="fa-solid fa-eye me-1"></i> View Item
-            </a>
-            <a href="index.php" class="btn btn-secondary fw-bold rounded-pill px-3">
+        <div>
+            <a href="index.php" class="btn btn-secondary fw-bold rounded-pill px-3 shadow-sm">
                 <i class="fa-solid fa-arrow-left me-1"></i> Back to Products
             </a>
         </div>
@@ -143,17 +150,17 @@ include $projectRoot . "/includes/header.php";
         </div>
     <?php endif; ?>
 
-    <!-- Main Edit Card -->
+    <!-- Product Registration Form Card -->
     <div class="card shadow-sm border-0 rounded-4 bg-white col-xl-10 mx-auto mb-4">
         <div class="card-header bg-white border-0 pt-4 px-4 pb-0 d-flex justify-content-between align-items-center">
             <h5 class="fw-bold mb-0 text-dark">
-                <i class="fa-solid fa-sliders text-primary me-2"></i>Modify Specifications & Commercial Rates
+                <i class="fa-solid fa-barcode text-primary me-2"></i>Item Specifications & Pricing
             </h5>
-            <span class="badge bg-light text-secondary border font-monospace px-3 py-1">ID: #<?= $row['id']; ?></span>
+            <span class="badge bg-primary-subtle text-primary border border-primary-subtle px-3 py-1 rounded-pill font-monospace">PRODUCT MASTER</span>
         </div>
 
         <div class="card-body p-4">
-            <form method="POST" id="editProductForm">
+            <form method="POST" id="productForm">
                 <div class="row g-4">
 
                     <!-- SKU / Product Code -->
@@ -161,22 +168,24 @@ include $projectRoot . "/includes/header.php";
                         <label class="form-label small fw-bold text-muted">SKU / Product Code *</label>
                         <div class="input-group">
                             <span class="input-group-text bg-light border-2"><i class="fa-solid fa-barcode text-muted"></i></span>
-                            <input type="text" name="product_code" class="form-control border-2 font-monospace fw-bold text-primary" value="<?= htmlspecialchars($currentCode); ?>" required>
+                            <input type="text" name="product_code" class="form-control border-2 font-monospace fw-bold text-primary" value="<?= htmlspecialchars($_POST['product_code'] ?? $default_code); ?>" required>
                         </div>
+                        <small class="text-muted">Unique tracking SKU identifier</small>
                     </div>
 
                     <!-- Product Name -->
                     <div class="col-md-8">
                         <label class="form-label small fw-bold text-muted">Product Title / Name *</label>
-                        <input type="text" name="product_name" class="form-control border-2 fw-semibold" value="<?= htmlspecialchars($row['product_name']); ?>" required>
+                        <input type="text" name="product_name" class="form-control border-2 fw-semibold" placeholder="e.g. Premium Basmati Rice (5kg Bag)" value="<?= htmlspecialchars($_POST['product_name'] ?? ''); ?>" required>
+                        <small class="text-muted">Full descriptive item title for invoices and packing lists</small>
                     </div>
 
                     <!-- Category -->
                     <div class="col-md-4">
-                        <label class="form-label small fw-bold text-muted">Category</label>
+                        <label class="form-label small fw-bold text-muted">Product Category</label>
                         <div class="input-group">
                             <span class="input-group-text bg-light border-2"><i class="fa-solid fa-tags text-muted"></i></span>
-                            <input type="text" name="category" class="form-control border-2" value="<?= htmlspecialchars($row['category'] ?? ''); ?>" list="categoryList">
+                            <input type="text" name="category" class="form-control border-2" placeholder="e.g. Grocery, Electronics" value="<?= htmlspecialchars($_POST['category'] ?? ''); ?>" list="categoryList">
                         </div>
                         <datalist id="categoryList">
                             <option value="Grocery">
@@ -193,7 +202,7 @@ include $projectRoot . "/includes/header.php";
                         <label class="form-label small fw-bold text-muted">Brand / Manufacturer</label>
                         <div class="input-group">
                             <span class="input-group-text bg-light border-2"><i class="fa-solid fa-copyright text-muted"></i></span>
-                            <input type="text" name="brand" class="form-control border-2" value="<?= htmlspecialchars($row['brand'] ?? ''); ?>" placeholder="e.g. Fortune, Nestle">
+                            <input type="text" name="brand" class="form-control border-2" placeholder="e.g. Fortune, Nestle" value="<?= htmlspecialchars($_POST['brand'] ?? ''); ?>">
                         </div>
                     </div>
 
@@ -201,12 +210,12 @@ include $projectRoot . "/includes/header.php";
                     <div class="col-md-4">
                         <label class="form-label small fw-bold text-muted">Unit of Measure (UOM) *</label>
                         <select name="uom" class="form-select border-2 fw-semibold" required>
-                            <option value="PCS" <?= ($currentUom === 'PCS') ? 'selected' : ''; ?>>PCS (Pieces)</option>
-                            <option value="BOX" <?= ($currentUom === 'BOX') ? 'selected' : ''; ?>>BOX (Carton / Box)</option>
-                            <option value="KG" <?= ($currentUom === 'KG') ? 'selected' : ''; ?>>KG (Kilograms)</option>
-                            <option value="LTR" <?= ($currentUom === 'LTR') ? 'selected' : ''; ?>>LTR (Liters)</option>
-                            <option value="BAG" <?= ($currentUom === 'BAG') ? 'selected' : ''; ?>>BAG (Bags / Sacks)</option>
-                            <option value="SET" <?= ($currentUom === 'SET') ? 'selected' : ''; ?>>SET (Pack / Set)</option>
+                            <option value="PCS" selected>PCS (Pieces)</option>
+                            <option value="BOX">BOX (Carton / Box)</option>
+                            <option value="KG">KG (Kilograms)</option>
+                            <option value="LTR">LTR (Liters)</option>
+                            <option value="BAG">BAG (Bags / Sacks)</option>
+                            <option value="SET">SET (Pack / Set)</option>
                         </select>
                     </div>
 
@@ -215,25 +224,27 @@ include $projectRoot . "/includes/header.php";
                         <label class="form-label small fw-bold text-muted">Maximum Retail Price (MRP ₹)</label>
                         <div class="input-group">
                             <span class="input-group-text bg-light border-2 fw-bold text-muted">₹</span>
-                            <input type="number" step="0.01" name="mrp" class="form-control border-2 font-monospace text-end fw-semibold" value="<?= htmlspecialchars($currentMrp); ?>">
+                            <input type="number" step="0.01" name="mrp" class="form-control border-2 font-monospace text-end fw-semibold" value="<?= htmlspecialchars($_POST['mrp'] ?? '0.00'); ?>">
                         </div>
+                        <small class="text-muted">Standard printed retail price</small>
                     </div>
 
                     <!-- Selling Price -->
                     <div class="col-md-4">
-                        <label class="form-label small fw-bold text-muted">Selling Price (₹)</label>
+                        <label class="form-label small fw-bold text-muted">Default Selling Price (₹)</label>
                         <div class="input-group">
                             <span class="input-group-text bg-light border-2 fw-bold text-success">₹</span>
-                            <input type="number" step="0.01" name="selling_price" class="form-control border-2 font-monospace text-end fw-bold text-success fs-5" value="<?= htmlspecialchars($currentPrice); ?>" required>
+                            <input type="number" step="0.01" name="selling_price" class="form-control border-2 font-monospace text-end fw-bold text-success fs-5" value="<?= htmlspecialchars($_POST['selling_price'] ?? '0.00'); ?>" required>
                         </div>
+                        <small class="text-muted">Commercial trading rate</small>
                     </div>
 
                     <!-- Status -->
                     <div class="col-md-4">
                         <label class="form-label small fw-bold text-muted">Catalog Status *</label>
                         <select name="status" class="form-select border-2 fw-semibold" required>
-                            <option value="Active" <?= (strcasecmp($row['status'] ?? 'Active', 'Active') === 0 || ($row['status'] ?? '') === '1') ? 'selected' : ''; ?>>🟢 Active (Available for Trading)</option>
-                            <option value="Inactive" <?= (strcasecmp($row['status'] ?? '', 'Inactive') === 0 || ($row['status'] ?? '') === '0') ? 'selected' : ''; ?>>🔴 Inactive / Discontinued</option>
+                            <option value="Active" selected>🟢 Active (Available for PO / Sales)</option>
+                            <option value="Inactive">🔴 Inactive / Discontinued</option>
                         </select>
                     </div>
 
@@ -242,8 +253,8 @@ include $projectRoot . "/includes/header.php";
                 <!-- Footer Buttons -->
                 <div class="d-flex justify-content-between align-items-center border-top pt-4 mt-4 flex-wrap gap-2">
                     <a href="index.php" class="btn btn-outline-secondary px-4 rounded-pill">Cancel</a>
-                    <button type="submit" name="update" class="btn btn-warning px-5 fw-bold shadow-sm rounded-pill text-dark">
-                        <i class="fa-solid fa-floppy-disk me-1"></i> Update Product SKU
+                    <button type="submit" name="save" class="btn btn-primary px-5 fw-bold shadow-sm rounded-pill">
+                        <i class="fa-solid fa-floppy-disk me-1"></i> Save Product SKU
                     </button>
                 </div>
             </form>
