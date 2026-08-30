@@ -3,7 +3,9 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-$projectRoot = file_exists(__DIR__ . "/../../../config/database.php") ? dirname(__DIR__, 3) : dirname(__DIR__, 4);
+$projectRoot = file_exists(__DIR__ . "/../../../config/database.php") 
+    ? dirname(__DIR__, 3) 
+    : (file_exists(__DIR__ . "/../../../../config/database.php") ? dirname(__DIR__, 4) : dirname(__DIR__, 2));
 
 if (!isset($_SESSION['employee_id'])) {
     header("Location: /vortex_wms/login.php");
@@ -12,16 +14,18 @@ if (!isset($_SESSION['employee_id'])) {
 
 require_once $projectRoot . "/config/database.php";
 
+$preselected_id = intval($_GET['inventory_id'] ?? 0);
+
 // Dynamic Warehouse Table Check
-$whTable = "warehouse";
-$chkTable = @mysqli_query($conn, "SHOW TABLES LIKE 'warehouse'");
-if (!$chkTable || mysqli_num_rows($chkTable) == 0) {
-    $whTable = "warehouses";
+$whTable = "warehouses";
+$chkTable = @mysqli_query($conn, "SHOW TABLES LIKE 'warehouses'");
+if (!$chkTable || mysqli_num_rows($chkTable) === 0) {
+    $whTable = "warehouse";
 }
 
 $nameCol = "warehouse_name";
 $cChk = @mysqli_query($conn, "SHOW COLUMNS FROM `{$whTable}` LIKE 'warehouse_name'");
-if (!$cChk || mysqli_num_rows($cChk) == 0) {
+if (!$cChk || mysqli_num_rows($cChk) === 0) {
     $nameCol = "name";
 }
 
@@ -31,12 +35,12 @@ $query = "
         i.id,
         COALESCE(p.product_name, i.product_name, 'Stock Item') AS product_name,
         COALESCE(p.sku, p.product_code, i.product_code, 'SKU-00') AS sku_code,
-        COALESCE(w.{$nameCol}, i.warehouse, 'Main Warehouse') AS warehouse_name,
-        COALESCE(i.bin_location, 'L0-A1') AS bin_code,
-        i.available_qty
+        COALESCE(w.{$nameCol}, i.warehouse, 'Surat Central Logistics Park') AS warehouse_name,
+        COALESCE(i.bin_location, 'DOCK-INWARD') AS bin_code,
+        COALESCE(i.available_qty, 0) AS available_qty
     FROM inventory i
-    LEFT JOIN products p ON p.id = i.product_id
-    LEFT JOIN `{$whTable}` w ON w.id = i.warehouse_id
+    LEFT JOIN products p ON (p.id = i.product_id OR p.product_code = i.product_code)
+    LEFT JOIN `{$whTable}` w ON (w.id = i.warehouse_id OR w.{$nameCol} = i.warehouse)
     ORDER BY product_name ASC
 ";
 $products = @mysqli_query($conn, $query);
@@ -87,7 +91,8 @@ include $projectRoot . "/includes/header.php";
                                         value="<?= $row['id']; ?>" 
                                         data-wh="<?= htmlspecialchars($row['warehouse_name']); ?>" 
                                         data-bin="<?= htmlspecialchars($row['bin_code']); ?>" 
-                                        data-qty="<?= (int)$row['available_qty']; ?>">
+                                        data-qty="<?= (int)$row['available_qty']; ?>"
+                                        <?= ($row['id'] == $preselected_id) ? 'selected' : ''; ?>>
                                         <?= htmlspecialchars($row['product_name']); ?> (<?= htmlspecialchars($row['sku_code']); ?>) | Bin: <?= htmlspecialchars($row['bin_code']); ?> [Available: <?= $row['available_qty']; ?>]
                                     </option>
                                 <?php endwhile; ?>
@@ -210,17 +215,29 @@ document.addEventListener("DOMContentLoaded", function () {
         }
     }
 
-    inventorySelect.addEventListener("change", function () {
-        const option = this.options[this.selectedIndex];
-        warehouseInput.value = option.getAttribute("data-wh") || "-";
-        binInput.value = option.getAttribute("data-bin") || "-";
-        currentStock = parseInt(option.getAttribute("data-qty")) || 0;
-        availableQtyInput.value = currentStock + " Units";
-        recalculate();
-    });
+    function syncSelectedOption() {
+        if (inventorySelect.selectedIndex > 0) {
+            const option = inventorySelect.options[inventorySelect.selectedIndex];
+            warehouseInput.value = option.getAttribute("data-wh") || "-";
+            binInput.value = option.getAttribute("data-bin") || "-";
+            currentStock = parseInt(option.getAttribute("data-qty")) || 0;
+            availableQtyInput.value = currentStock + " Units";
+            recalculate();
+        } else {
+            warehouseInput.value = "-";
+            binInput.value = "-";
+            currentStock = 0;
+            availableQtyInput.value = "0 Units";
+            newBalancePreview.innerText = "0 Units";
+        }
+    }
 
+    inventorySelect.addEventListener("change", syncSelectedOption);
     typeSelect.addEventListener("change", recalculate);
     quantityInput.addEventListener("input", recalculate);
+
+    // Initial Trigger for preselected IDs
+    syncSelectedOption();
 });
 </script>
 

@@ -3,7 +3,9 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-$projectRoot = file_exists(__DIR__ . "/../../../config/database.php") ? dirname(__DIR__, 3) : dirname(__DIR__, 4);
+$projectRoot = file_exists(__DIR__ . "/../../../config/database.php") 
+    ? dirname(__DIR__, 3) 
+    : (file_exists(__DIR__ . "/../../../../config/database.php") ? dirname(__DIR__, 4) : dirname(__DIR__, 2));
 
 if (!isset($_SESSION['employee_id'])) {
     header("Location: /vortex_wms/login.php");
@@ -23,7 +25,7 @@ $id = intval($_GET['id']);
 // 1. Dynamic Table Detection
 $adjTable = "stock_adjustments";
 $chkTable = @mysqli_query($conn, "SHOW TABLES LIKE 'stock_adjustments'");
-if (!$chkTable || mysqli_num_rows($chkTable) == 0) {
+if (!$chkTable || mysqli_num_rows($chkTable) === 0) {
     $chkTable2 = @mysqli_query($conn, "SHOW TABLES LIKE 'stock_adjustment'");
     if ($chkTable2 && mysqli_num_rows($chkTable2) > 0) {
         $adjTable = "stock_adjustment";
@@ -32,16 +34,16 @@ if (!$chkTable || mysqli_num_rows($chkTable) == 0) {
     }
 }
 
-// 2. Dynamic Warehouse Table
-$whTable = "warehouse";
-$chkWh = @mysqli_query($conn, "SHOW TABLES LIKE 'warehouse'");
-if (!$chkWh || mysqli_num_rows($chkWh) == 0) {
-    $whTable = "warehouses";
+// 2. Dynamic Warehouse Table Resolution
+$whTable = "warehouses";
+$chkWh = @mysqli_query($conn, "SHOW TABLES LIKE 'warehouses'");
+if (!$chkWh || mysqli_num_rows($chkWh) === 0) {
+    $whTable = "warehouse";
 }
 
 $whNameCol = "warehouse_name";
 $cChk = @mysqli_query($conn, "SHOW COLUMNS FROM `{$whTable}` LIKE 'warehouse_name'");
-if (!$cChk || mysqli_num_rows($cChk) == 0) {
+if (!$cChk || mysqli_num_rows($cChk) === 0) {
     $whNameCol = "name";
 }
 
@@ -49,7 +51,9 @@ if (!$cChk || mysqli_num_rows($cChk) == 0) {
 $adjCols = [];
 $cRes = @mysqli_query($conn, "SHOW COLUMNS FROM `{$adjTable}`");
 if ($cRes) {
-    while ($c = mysqli_fetch_assoc($cRes)) { $adjCols[] = strtolower($c['Field']); }
+    while ($c = mysqli_fetch_assoc($cRes)) { 
+        $adjCols[] = strtolower($c['Field']); 
+    }
 }
 
 $typeCol   = in_array('adjustment_type', $adjCols) ? 'adjustment_type' : (in_array('type', $adjCols) ? 'type' : "'Increase'");
@@ -57,26 +61,26 @@ $dateCol   = in_array('adjustment_date', $adjCols) ? 'adjustment_date' : (in_arr
 $reasonCol = in_array('reason', $adjCols) ? 'reason' : "''";
 $userCol   = in_array('created_by', $adjCols) ? 'created_by' : (in_array('adjusted_by', $adjCols) ? 'adjusted_by' : "'1'");
 
-// 4. Fetch Adjustment Record with Joins
+// 4. Fetch Adjustment Record with Safe Joins
 $query = "
     SELECT 
         a.id,
         a.{$typeCol} AS adjustment_type,
-        a.quantity,
-        a.{$dateCol} AS adjustment_date,
-        a.{$reasonCol} AS reason,
-        a.{$userCol} AS user_identifier,
+        COALESCE(a.quantity, 0) AS quantity,
+        COALESCE(a.{$dateCol}, NOW()) AS adjustment_date,
+        COALESCE(a.{$reasonCol}, '') AS reason,
+        COALESCE(a.{$userCol}, '1') AS user_identifier,
         COALESCE(p.product_name, i.product_name, 'Stock Item') AS final_product_name,
         COALESCE(p.sku, p.product_code, i.product_code, 'SKU-00') AS final_sku,
         COALESCE(p.category, 'General') AS product_category,
-        COALESCE(w.{$whNameCol}, i.warehouse, 'Main Facility') AS final_warehouse,
-        COALESCE(i.bin_location, 'L0-A1') AS final_bin,
-        i.available_qty AS current_stock_balance,
-        e.full_name AS employee_name
+        COALESCE(w.{$whNameCol}, i.warehouse, 'Surat Central Logistics Park') AS final_warehouse,
+        COALESCE(i.bin_location, 'DOCK-INWARD') AS final_bin,
+        COALESCE(i.available_qty, 0) AS current_stock_balance,
+        COALESCE(e.full_name, e.name, 'Warehouse Auditor') AS employee_name
     FROM `{$adjTable}` a
-    LEFT JOIN inventory i ON i.id = a.inventory_id
-    LEFT JOIN products p ON (p.id = a.product_id OR p.id = i.product_id)
-    LEFT JOIN `{$whTable}` w ON w.id = i.warehouse_id
+    LEFT JOIN inventory i ON (i.id = a.inventory_id)
+    LEFT JOIN products p ON (p.id = a.product_id OR p.id = i.product_id OR p.product_code = i.product_code)
+    LEFT JOIN `{$whTable}` w ON (w.id = i.warehouse_id OR w.{$whNameCol} = i.warehouse)
     LEFT JOIN employees e ON (e.id = a.{$userCol} OR e.employee_id = a.{$userCol})
     WHERE a.id = $id
     LIMIT 1
@@ -84,7 +88,7 @@ $query = "
 
 $result = @mysqli_query($conn, $query);
 
-if (!$result || mysqli_num_rows($result) == 0) {
+if (!$result || mysqli_num_rows($result) === 0) {
     $_SESSION['error'] = "Adjustment record #{$id} not found.";
     header("Location: index.php");
     exit();

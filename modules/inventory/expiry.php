@@ -3,7 +3,9 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-$projectRoot = file_exists(__DIR__ . "/../../config/database.php") ? dirname(__DIR__, 2) : dirname(__DIR__, 3);
+$projectRoot = file_exists(__DIR__ . "/../../config/database.php") 
+    ? dirname(__DIR__, 2) 
+    : (file_exists(__DIR__ . "/../../../config/database.php") ? dirname(__DIR__, 3) : dirname(__DIR__, 1));
 
 if (!isset($_SESSION['employee_id'])) { 
     header("Location: /vortex_wms/login.php"); 
@@ -14,7 +16,20 @@ require_once $projectRoot . "/config/database.php";
 
 $filter = strtoupper($_GET['filter'] ?? 'ALL');
 
-// Column fallback safety check
+// Dynamic Warehouse Table Resolution
+$whTable = "warehouses";
+$chkTable = @mysqli_query($conn, "SHOW TABLES LIKE 'warehouses'");
+if (!$chkTable || mysqli_num_rows($chkTable) === 0) {
+    $whTable = "warehouse";
+}
+
+$whNameCol = "warehouse_name";
+$cChk = @mysqli_query($conn, "SHOW COLUMNS FROM `{$whTable}` LIKE 'warehouse_name'");
+if (!$cChk || mysqli_num_rows($cChk) === 0) {
+    $whNameCol = "name";
+}
+
+// Column Fallback Safety Check for Inventory Table
 $tableCols = [];
 $colRes = @mysqli_query($conn, "SHOW COLUMNS FROM `inventory`");
 if ($colRes) {
@@ -26,20 +41,25 @@ if ($colRes) {
 $qtyCol  = in_array('available_qty', $tableCols) ? 'available_qty' : 'quantity';
 $binCol  = in_array('bin_location', $tableCols) ? 'bin_location' : 'location';
 $nameCol = in_array('product_name', $tableCols) ? 'product_name' : 'item_name';
-$hasBatch = in_array('batch_no', $tableCols) || in_array('batch_number', $tableCols);
 $batchCol = in_array('batch_no', $tableCols) ? 'batch_no' : (in_array('batch_number', $tableCols) ? 'batch_number' : "''");
 
-// Base SQL with FEFO sorting
-$sql = "SELECT i.*, 
+// Base SQL with FEFO sorting & safe joins
+$sql = "
+    SELECT 
+        i.*, 
         COALESCE(p.product_name, i.{$nameCol}, 'Stock Item') AS final_product_name,
-        COALESCE(p.sku, i.sku, 'SKU-00') AS final_sku,
-        i.{$binCol} AS final_bin,
-        i.{$qtyCol} AS final_qty,
-        {$batchCol} AS final_batch,
-        DATEDIFF(i.expiry_date, CURDATE()) as days_left 
-        FROM inventory i 
-        LEFT JOIN products p ON p.id = i.product_id
-        WHERE i.expiry_date IS NOT NULL AND i.expiry_date != '0000-00-00'";
+        COALESCE(p.sku, p.product_code, i.product_code, 'SKU-00') AS final_sku,
+        COALESCE(w.{$whNameCol}, i.warehouse, 'Surat Central Logistics Park') AS final_warehouse,
+        COALESCE(i.{$binCol}, 'DOCK-INWARD') AS final_bin,
+        COALESCE(i.{$qtyCol}, 0) AS final_qty,
+        COALESCE(i.{$batchCol}, 'BAT-STD') AS final_batch,
+        DATEDIFF(i.expiry_date, CURDATE()) AS days_left 
+    FROM inventory i 
+    LEFT JOIN products p ON (p.id = i.product_id OR p.product_code = i.product_code)
+    LEFT JOIN `{$whTable}` w ON (w.id = i.warehouse_id OR w.{$whNameCol} = i.warehouse)
+    WHERE i.expiry_date IS NOT NULL 
+      AND i.expiry_date != '0000-00-00'
+";
 
 if ($filter === 'EXPIRED') {
     $sql .= " AND i.expiry_date < CURDATE()";
@@ -157,6 +177,7 @@ include $projectRoot . "/includes/header.php";
                             <th>Priority</th>
                             <th>SKU</th>
                             <th>Product Name</th>
+                            <th>Warehouse Hub</th>
                             <th>Batch #</th>
                             <th>Bin Location</th>
                             <th class="text-center">Available</th>
@@ -190,10 +211,15 @@ include $projectRoot . "/includes/header.php";
                                     <td class="text-center fw-bold"><?= $priorityBadge; ?></td>
                                     <td><code class="fw-bold text-primary font-monospace"><?= htmlspecialchars($row['final_sku']); ?></code></td>
                                     <td><strong class="text-dark"><?= htmlspecialchars($row['final_product_name']); ?></strong></td>
+                                    <td>
+                                        <small class="text-muted fw-semibold">
+                                            <i class="fa-solid fa-warehouse text-secondary me-1"></i><?= htmlspecialchars($row['final_warehouse']); ?>
+                                        </small>
+                                    </td>
                                     <td><span class="badge bg-light text-dark border font-monospace"><?= htmlspecialchars($row['final_batch'] ?: 'BATCH-01'); ?></span></td>
                                     <td>
                                         <span class="badge bg-primary-subtle text-primary border border-primary-subtle font-monospace">
-                                            <?= htmlspecialchars($row['final_bin'] ?? 'L0-A1'); ?>
+                                            <?= htmlspecialchars($row['final_bin']); ?>
                                         </span>
                                     </td>
                                     <td class="text-center"><strong class="fs-6 text-dark"><?= number_format((int)$row['final_qty']); ?></strong></td>
@@ -212,7 +238,7 @@ include $projectRoot . "/includes/header.php";
                             <?php endwhile; ?>
                         <?php else: ?>
                             <tr>
-                                <td colspan="9" class="text-center py-5 text-muted">
+                                <td colspan="10" class="text-center py-5 text-muted">
                                     <i class="fa-solid fa-circle-check text-success fs-1 mb-2 d-block opacity-75"></i>
                                     No stock items match the selected expiry criteria.
                                 </td>

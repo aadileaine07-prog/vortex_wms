@@ -3,7 +3,11 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-require_once "../../config/database.php";
+$projectRoot = file_exists(__DIR__ . "/../../config/database.php") 
+    ? dirname(__DIR__, 2) 
+    : (file_exists(__DIR__ . "/../../../config/database.php") ? dirname(__DIR__, 3) : dirname(__DIR__, 1));
+
+require_once $projectRoot . "/config/database.php";
 
 header('Content-Type: application/json');
 
@@ -24,17 +28,25 @@ if ($warehouse_id <= 0 || !$conn) {
    ========================================================================== */
 
 // Detect Warehouse Table & Column Name
-$whTable = "warehouse";
-$chkTable = @mysqli_query($conn, "SHOW TABLES LIKE 'warehouse'");
-if (!$chkTable || mysqli_num_rows($chkTable) == 0) {
-    $whTable = "warehouses";
+$whTable = "warehouses";
+$chkTable = @mysqli_query($conn, "SHOW TABLES LIKE 'warehouses'");
+if (!$chkTable || mysqli_num_rows($chkTable) === 0) {
+    $whTable = "warehouse";
 }
 
 $whNameCol = "warehouse_name";
 $cChk = @mysqli_query($conn, "SHOW COLUMNS FROM `{$whTable}` LIKE 'warehouse_name'");
-if (!$cChk || mysqli_num_rows($cChk) == 0) {
+if (!$cChk || mysqli_num_rows($cChk) === 0) {
     $whNameCol = "name";
 }
+
+// Fetch Warehouse Name
+$currentWhName = '';
+$whRes = @mysqli_query($conn, "SELECT `{$whNameCol}` AS wh_name FROM `{$whTable}` WHERE id = '$warehouse_id' LIMIT 1");
+if ($whRes && $whRow = mysqli_fetch_assoc($whRes)) {
+    $currentWhName = $whRow['wh_name'];
+}
+$whNameEscaped = mysqli_real_escape_string($conn, $currentWhName);
 
 // Detect Columns in bin_locations
 $binCols = [];
@@ -47,12 +59,13 @@ if ($colRes) {
 
 function hasBinCol($name, $cols) { return in_array(strtolower($name), $cols); }
 
-$hasZoneName = hasBinCol('zone_name', $binCols);
-$hasZone     = hasBinCol('zone', $binCols);
-$hasZoneType = hasBinCol('zone_type', $binCols);
-$hasMaxUnits = hasBinCol('max_units', $binCols);
+$hasZoneName  = hasBinCol('zone_name', $binCols);
+$hasZone      = hasBinCol('zone', $binCols);
+$hasZoneType  = hasBinCol('zone_type', $binCols);
+$hasMaxUnits  = hasBinCol('max_units', $binCols);
 $hasMaxWeight = hasBinCol('max_weight_kg', $binCols);
-$hasMaxCap   = hasBinCol('max_capacity', $binCols);
+$hasMaxCap    = hasBinCol('max_capacity', $binCols) || hasBinCol('capacity', $binCols);
+$capColumn    = hasBinCol('capacity', $binCols) ? 'capacity' : 'max_capacity';
 
 /* ==========================================================================
    2. BUILD DYNAMIC ZONE FILTER & CAPACITY COLUMNS
@@ -72,11 +85,11 @@ if (!empty($zone_filter)) {
 }
 
 // Capacity Select Expressions
-$capacitySelect = "100 AS max_units_limit, 500 AS max_weight_limit";
+$capacitySelect = "150 AS max_units_limit, 500 AS max_weight_limit";
 if ($hasMaxUnits && $hasMaxWeight) {
-    $capacitySelect = "COALESCE(b.max_units, 100) AS max_units_limit, COALESCE(b.max_weight_kg, 500) AS max_weight_limit";
+    $capacitySelect = "COALESCE(b.max_units, 150) AS max_units_limit, COALESCE(b.max_weight_kg, 500) AS max_weight_limit";
 } elseif ($hasMaxCap) {
-    $capacitySelect = "COALESCE(b.max_capacity, 100) AS max_units_limit, 500 AS max_weight_limit";
+    $capacitySelect = "COALESCE(b.{$capColumn}, 150) AS max_units_limit, 500 AS max_weight_limit";
 }
 
 /* ==========================================================================
@@ -87,16 +100,16 @@ $query = "
     SELECT 
         b.id, 
         b.bin_code, 
-        COALESCE(" . ($hasZoneName ? "b.zone_name" : ($hasZone ? "b.zone" : "'General'")) . ", 'General') AS zone_display,
+        COALESCE(" . ($hasZoneName ? "b.zone_name" : ($hasZone ? "b.zone" : "'General Zone'")) . ", 'General Zone') AS zone_display,
         $capacitySelect,
         COALESCE(SUM(i.available_qty + i.reserved_qty), 0) AS total_occupied_units
     FROM bin_locations b
     LEFT JOIN inventory i ON (
         i.bin_location = b.bin_code 
-        AND (i.warehouse_id = b.warehouse_id OR i.warehouse = (SELECT `{$whNameCol}` FROM `{$whTable}` WHERE id = b.warehouse_id LIMIT 1))
+        AND (i.warehouse_id = '$warehouse_id' OR i.warehouse = '{$whNameEscaped}')
     )
-    WHERE (b.warehouse_id = '$warehouse_id' OR b.warehouse_id IS NULL OR b.warehouse_id = 0)
-      AND (b.status = 'Active' OR b.status = '1')
+    WHERE (b.warehouse_id = '$warehouse_id' OR b.warehouse = '{$whNameEscaped}' OR b.warehouse_id IS NULL OR b.warehouse_id = 0 OR b.warehouse = '')
+      AND (LOWER(COALESCE(b.status, 'Active')) = 'active' OR b.status = '1')
       $whereZone
     GROUP BY b.id, b.bin_code
     HAVING total_occupied_units < max_units_limit
@@ -133,6 +146,56 @@ if ($result && mysqli_num_rows($result) > 0) {
             'percent_used'    => $percentUsed,
             'label'           => $row['bin_code'] . " - " . $statusLabel
         ];
+    }
+}
+
+/* ==========================================================================
+   4. DYNAMIC FALLBACK IF NO BINS EXIST IN DB
+   ========================================================================== */
+if (empty($bins)) {
+    // Check occupied bins directly in inventory for this warehouse
+    $occMap = [];
+    $occQ = @mysqli_query($conn, "SELECT bin_location, SUM(available_qty + reserved_qty) AS stock FROM inventory WHERE (warehouse_id = '$warehouse_id' OR warehouse = '{$whNameEscaped}') GROUP BY bin_location");
+    if ($occQ) {
+        while ($o = mysqli_fetch_assoc($occQ)) {
+            $occMap[strtoupper(trim($o['bin_location']))] = (int)$o['stock'];
+        }
+    }
+
+    $floors = ['L0', 'L1'];
+    $aisles = ['A1', 'A2', 'B1', 'B2', 'C1'];
+    $dummyId = 1;
+
+    foreach ($floors as $fl) {
+        foreach ($aisles as $ais) {
+            for ($rack = 1; $rack <= 3; $rack++) {
+                for ($shelf = 1; $shelf <= 2; $shelf++) {
+                    $code = sprintf("%s-%s-%03d-%02d-A", $fl, $ais, $rack, $shelf);
+                    $occupied = $occMap[$code] ?? 0;
+                    $maxUnits = 150;
+                    $spaceLeft = max(0, $maxUnits - $occupied);
+
+                    if ($spaceLeft > 0) {
+                        $percentUsed = round(($occupied / $maxUnits) * 100);
+                        $statusLabel = ($occupied === 0) 
+                            ? "🟢 EMPTY (0/{$maxUnits} Units - Free)" 
+                            : "🟡 PARTIAL ({$spaceLeft} Units Left | {$percentUsed}% Full)";
+
+                        $bins[] = [
+                            'id'              => $dummyId++,
+                            'bin_code'        => $code,
+                            'zone'            => 'Zone ' . $ais,
+                            'occupied_units'  => $occupied,
+                            'max_units'       => $maxUnits,
+                            'max_weight_kg'   => 500,
+                            'available_space' => $spaceLeft,
+                            'percent_used'    => $percentUsed,
+                            'label'           => $code . " - " . $statusLabel
+                        ];
+                    }
+                }
+            }
+        }
     }
 }
 

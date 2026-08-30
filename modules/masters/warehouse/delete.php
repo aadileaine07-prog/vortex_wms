@@ -1,35 +1,58 @@
 <?php
-session_start();
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
+$projectRoot = file_exists(__DIR__ . "/../../../config/database.php") 
+    ? dirname(__DIR__, 3) 
+    : (file_exists(__DIR__ . "/../../config/database.php") ? dirname(__DIR__, 2) : dirname(__DIR__, 1));
 
 if (!isset($_SESSION['employee_id'])) {
-    header("Location: ../../../login.php");
+    header("Location: /vortex_wms/login.php");
     exit();
 }
 
-require_once "../../../config/database.php";
+require_once $projectRoot . "/config/database.php";
 
-if (!isset($_GET['id']) || empty($_GET['id'])) {
-    $_SESSION['error'] = "Warehouse ID Missing.";
+$id = intval($_GET['id'] ?? 0);
+
+if ($id <= 0) {
+    $_SESSION['error'] = "Invalid warehouse ID.";
     header("Location: index.php");
     exit();
 }
 
-$id = intval($_GET['id']);
+$whTable = "warehouses";
+$chkTable = @mysqli_query($conn, "SHOW TABLES LIKE 'warehouses'");
+if (!$chkTable || mysqli_num_rows($chkTable) === 0) {
+    $whTable = "warehouse";
+}
 
-$check = mysqli_query($conn, "SELECT id FROM warehouse WHERE id='$id'");
-
-if (!$check || mysqli_num_rows($check) == 0) {
-    $_SESSION['error'] = "Warehouse Not Found.";
+$whRes = mysqli_query($conn, "SELECT * FROM `{$whTable}` WHERE id = '$id' LIMIT 1");
+if (!$whRes || mysqli_num_rows($whRes) === 0) {
+    $_SESSION['error'] = "Warehouse not found.";
     header("Location: index.php");
     exit();
 }
 
-if (mysqli_query($conn, "DELETE FROM warehouse WHERE id='$id'")) {
-    $_SESSION['success'] = "Warehouse deleted successfully.";
-} else {
-    $_SESSION['error'] = "Failed to delete warehouse: " . mysqli_error($conn);
+$whData = mysqli_fetch_assoc($whRes);
+$whName = $whData['warehouse_name'] ?? ($whData['name'] ?? '');
+
+// Check if active stock exists
+$invCheck = mysqli_query($conn, "SELECT COUNT(*) FROM inventory WHERE (warehouse_id = '$id' OR warehouse = '" . mysqli_real_escape_string($conn, $whName) . "') AND available_qty > 0");
+$activeStock = ($invCheck && $c = mysqli_fetch_array($invCheck)) ? (int)$c[0] : 0;
+
+if ($activeStock > 0) {
+    $_SESSION['error'] = "Cannot delete <strong>{$whName}</strong>! Active stock exists inside this warehouse.";
+    header("Location: index.php");
+    exit();
 }
 
+// Delete warehouse and linked empty bins
+mysqli_query($conn, "DELETE FROM `{$whTable}` WHERE id = '$id'");
+mysqli_query($conn, "DELETE FROM bin_locations WHERE warehouse_id = '$id' OR warehouse = '" . mysqli_real_escape_string($conn, $whName) . "'");
+
+$_SESSION['success'] = "Warehouse facility <strong>{$whName}</strong> deleted successfully.";
 header("Location: index.php");
 exit();
 ?>

@@ -3,7 +3,11 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-$projectRoot = file_exists(__DIR__ . "/../../../config/database.php") ? dirname(__DIR__, 3) : dirname(__DIR__, 4);
+$projectRoot = file_exists(__DIR__ . "/../../../config/database.php") 
+    ? dirname(__DIR__, 3) 
+    : (file_exists(__DIR__ . "/../../../../config/database.php") 
+        ? dirname(__DIR__, 4) 
+        : (file_exists(__DIR__ . "/../../config/database.php") ? dirname(__DIR__, 2) : dirname(__DIR__, 1)));
 
 if (!isset($_SESSION['employee_id'])) {
     header("Location: /vortex_wms/login.php");
@@ -19,7 +23,7 @@ require_once $projectRoot . "/config/database.php";
 // Detect Adjustments Table Name
 $adjTable = "stock_adjustments";
 $chkTable = @mysqli_query($conn, "SHOW TABLES LIKE 'stock_adjustments'");
-if (!$chkTable || mysqli_num_rows($chkTable) == 0) {
+if (!$chkTable || mysqli_num_rows($chkTable) === 0) {
     $chkTable2 = @mysqli_query($conn, "SHOW TABLES LIKE 'stock_adjustment'");
     if ($chkTable2 && mysqli_num_rows($chkTable2) > 0) {
         $adjTable = "stock_adjustment";
@@ -29,15 +33,15 @@ if (!$chkTable || mysqli_num_rows($chkTable) == 0) {
 }
 
 // Detect Warehouse Table Name
-$whTable = "warehouse";
-$chkWh = @mysqli_query($conn, "SHOW TABLES LIKE 'warehouse'");
-if (!$chkWh || mysqli_num_rows($chkWh) == 0) {
-    $whTable = "warehouses";
+$whTable = "warehouses";
+$chkWh = @mysqli_query($conn, "SHOW TABLES LIKE 'warehouses'");
+if (!$chkWh || mysqli_num_rows($chkWh) === 0) {
+    $whTable = "warehouse";
 }
 
 $whNameCol = "warehouse_name";
 $cChk = @mysqli_query($conn, "SHOW COLUMNS FROM `{$whTable}` LIKE 'warehouse_name'");
-if (!$cChk || mysqli_num_rows($cChk) == 0) {
+if (!$cChk || mysqli_num_rows($cChk) === 0) {
     $whNameCol = "name";
 }
 
@@ -62,17 +66,17 @@ $query = "
     SELECT 
         a.id,
         a.{$typeCol} AS adjustment_type,
-        a.quantity,
-        a.{$dateCol} AS adjustment_date,
-        a.{$reasonCol} AS reason,
-        COALESCE(p.product_name, i.product_name, 'Stock Item') AS final_product_name,
+        COALESCE(a.quantity, 0) AS quantity,
+        COALESCE(a.{$dateCol}, NOW()) AS adjustment_date,
+        COALESCE(a.{$reasonCol}, 'Audit Recount') AS reason,
+        COALESCE(p.product_name, i.product_name, 'Catalog Product') AS final_product_name,
         COALESCE(p.sku, p.product_code, i.product_code, 'SKU-00') AS final_sku,
-        COALESCE(w.{$whNameCol}, i.warehouse, 'Main Facility') AS final_warehouse,
-        COALESCE(i.bin_location, 'L0-A1') AS final_bin
+        COALESCE(w.{$whNameCol}, i.warehouse, 'Surat Central Logistics Park') AS final_warehouse,
+        COALESCE(i.bin_location, 'DOCK-INWARD') AS final_bin
     FROM `{$adjTable}` a
-    LEFT JOIN inventory i ON i.id = a.inventory_id
-    LEFT JOIN products p ON (p.id = a.product_id OR p.id = i.product_id)
-    LEFT JOIN `{$whTable}` w ON w.id = i.warehouse_id
+    LEFT JOIN inventory i ON (i.id = a.inventory_id)
+    LEFT JOIN products p ON (p.id = a.product_id OR p.id = i.product_id OR p.product_code = i.product_code)
+    LEFT JOIN `{$whTable}` w ON (w.id = i.warehouse_id OR w.{$whNameCol} = i.warehouse)
     ORDER BY a.id DESC
 ";
 
@@ -172,9 +176,13 @@ include $projectRoot . "/includes/header.php";
                                         <div class="fw-bold text-dark"><?= htmlspecialchars($row['final_product_name']); ?></div>
                                         <code class="text-primary font-monospace small"><?= htmlspecialchars($row['final_sku']); ?></code>
                                     </td>
-                                    <td><?= htmlspecialchars($row['final_warehouse']); ?></td>
                                     <td>
-                                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle font-monospace">
+                                        <span class="badge bg-light text-dark border px-2 py-1">
+                                            <i class="fa-solid fa-warehouse text-secondary me-1"></i><?= htmlspecialchars($row['final_warehouse']); ?>
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle font-monospace fs-6 px-2 py-1">
                                             <?= htmlspecialchars($row['final_bin']); ?>
                                         </span>
                                     </td>

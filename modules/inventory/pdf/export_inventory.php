@@ -3,7 +3,9 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-$projectRoot = file_exists(__DIR__ . "/../../../config/database.php") ? dirname(__DIR__, 3) : dirname(__DIR__, 4);
+$projectRoot = file_exists(__DIR__ . "/../../config/database.php") 
+    ? dirname(__DIR__, 2) 
+    : (file_exists(__DIR__ . "/../../../config/database.php") ? dirname(__DIR__, 3) : dirname(__DIR__, 1));
 
 if (!isset($_SESSION['employee_id'])) {
     header("Location: /vortex_wms/login.php");
@@ -12,29 +14,43 @@ if (!isset($_SESSION['employee_id'])) {
 
 require_once $projectRoot . "/config/database.php";
 
-// Composer Autoload Check
-$autoloadPath = $projectRoot . "/vendor/autoload.php";
-if (!file_exists($autoloadPath)) {
-    die("Composer autoload file not found at: {$autoloadPath}. Please run 'composer require dompdf/dompdf'.");
+// 1. Dynamic Composer Autoload Locators
+$autoloadPaths = [
+    $projectRoot . "/vendor/autoload.php",
+    dirname(__DIR__, 1) . "/vendor/autoload.php",
+    dirname(__DIR__, 2) . "/vendor/autoload.php",
+    dirname(__DIR__, 3) . "/vendor/autoload.php"
+];
+
+$autoloadFound = false;
+foreach ($autoloadPaths as $path) {
+    if (file_exists($path)) {
+        require_once $path;
+        $autoloadFound = true;
+        break;
+    }
 }
-require_once $autoloadPath;
+
+if (!$autoloadFound) {
+    die("Composer autoload file not found. Please run 'composer require dompdf/dompdf' in the project root.");
+}
 
 use Dompdf\Dompdf;
 use Dompdf\Options;
 
 /* ==========================================================================
-   1. DYNAMIC DATABASE FETCHING WITH MASTER JOINS
+   2. DYNAMIC DATABASE FETCHING WITH MASTER JOINS
    ========================================================================== */
 
-$whTable = "warehouse";
-$chkWh = @mysqli_query($conn, "SHOW TABLES LIKE 'warehouse'");
-if (!$chkWh || mysqli_num_rows($chkWh) == 0) {
-    $whTable = "warehouses";
+$whTable = "warehouses";
+$chkWh = @mysqli_query($conn, "SHOW TABLES LIKE 'warehouses'");
+if (!$chkWh || mysqli_num_rows($chkWh) === 0) {
+    $whTable = "warehouse";
 }
 
 $whNameCol = "warehouse_name";
 $cChk = @mysqli_query($conn, "SHOW COLUMNS FROM `{$whTable}` LIKE 'warehouse_name'");
-if (!$cChk || mysqli_num_rows($cChk) == 0) {
+if (!$cChk || mysqli_num_rows($cChk) === 0) {
     $whNameCol = "name";
 }
 
@@ -51,11 +67,11 @@ $query = "
         COALESCE(p.product_name, i.product_name, 'Stock Item') AS final_product_name,
         COALESCE(p.sku, p.product_code, i.product_code, 'SKU-00') AS final_sku,
         COALESCE(p.category, 'General') AS product_category,
-        COALESCE(w.{$whNameCol}, i.warehouse, 'Main Facility') AS final_warehouse,
-        COALESCE(i.batch_no, i.batch_number, '-') AS final_batch
+        COALESCE(w.{$whNameCol}, i.warehouse, 'Surat Central Logistics Park') AS final_warehouse,
+        COALESCE(i.batch_no, 'BAT-STD') AS final_batch
     FROM inventory i
-    LEFT JOIN products p ON p.id = i.product_id
-    LEFT JOIN `{$whTable}` w ON w.id = i.warehouse_id
+    LEFT JOIN products p ON (p.id = i.product_id OR p.product_code = i.product_code)
+    LEFT JOIN `{$whTable}` w ON (w.id = i.warehouse_id OR w.{$whNameCol} = i.warehouse)
     ORDER BY final_product_name ASC
 ";
 
@@ -72,13 +88,16 @@ if ($result) {
         $totalStock    += $avail;
         $totalReserved += $resv;
 
-        if ($avail === 0) $outStockCount++;
-        elseif ($avail <= 10) $lowStockCount++;
+        if ($avail === 0) {
+            $outStockCount++;
+        } elseif ($avail <= 10) {
+            $lowStockCount++;
+        }
     }
 }
 
 /* ==========================================================================
-   2. DOMPDF STYLING & TEMPLATE GENERATION
+   3. DOMPDF STYLING & TEMPLATE GENERATION
    ========================================================================== */
 
 $options = new Options();
@@ -299,7 +318,7 @@ if (!empty($rows)) {
                 <span style="color:#64748b; font-size: 7.5px; display:block;">Cat: ' . htmlspecialchars($row['product_category']) . '</span>
             </td>
             <td>' . htmlspecialchars($row['final_warehouse']) . '</td>
-            <td><span class="font-mono" style="font-weight:bold; color:#0f172a;">' . htmlspecialchars($row['bin_location'] ?? 'L0-A1') . '</span></td>
+            <td><span class="font-mono" style="font-weight:bold; color:#0f172a;">' . htmlspecialchars($row['bin_location'] ?? 'DOCK-INWARD') . '</span></td>
             <td><span class="font-mono">' . htmlspecialchars($row['final_batch']) . '</span></td>
             <td class="text-center"><strong>' . number_format($avail) . '</strong></td>
             <td class="text-center" style="color:#64748b;">' . number_format($resv) . '</td>
@@ -318,7 +337,7 @@ $html .= '
 <table class="footer-table">
     <tr>
         <td style="width: 50%;">VORTEX WMS &bull; Live Automated System Audit Report</td>
-        <td style="width: 50%;" class="text-right">Confidential &bull; Page 1 of 1</td>
+        <td style="width: 50%;" class="text-right">Confidential &bull; Generated from Vortex Core</td>
     </tr>
 </table>
 

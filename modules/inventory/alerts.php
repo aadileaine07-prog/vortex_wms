@@ -4,7 +4,9 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 
 // Dynamic Project Root Detection
-$projectRoot = file_exists(__DIR__ . "/../../config/database.php") ? dirname(__DIR__, 2) : dirname(__DIR__, 3);
+$projectRoot = file_exists(__DIR__ . "/../../config/database.php") 
+    ? dirname(__DIR__, 2) 
+    : (file_exists(__DIR__ . "/../../../config/database.php") ? dirname(__DIR__, 3) : dirname(__DIR__, 1));
 
 if (!isset($_SESSION['employee_id'])) { 
     header("Location: /vortex_wms/login.php"); 
@@ -13,16 +15,16 @@ if (!isset($_SESSION['employee_id'])) {
 
 require_once $projectRoot . "/config/database.php";
 
-// 1. Dynamic Warehouse Table Resolution
-$whTable = "warehouse";
-$chkTable = @mysqli_query($conn, "SHOW TABLES LIKE 'warehouse'");
-if (!$chkTable || mysqli_num_rows($chkTable) == 0) {
-    $whTable = "warehouses";
+// 1. Dynamic Warehouse Table & Column Resolution
+$whTable = "warehouses";
+$chkTable = @mysqli_query($conn, "SHOW TABLES LIKE 'warehouses'");
+if (!$chkTable || mysqli_num_rows($chkTable) === 0) {
+    $whTable = "warehouse";
 }
 
 $whNameCol = "warehouse_name";
 $cChk = @mysqli_query($conn, "SHOW COLUMNS FROM `{$whTable}` LIKE 'warehouse_name'");
-if (!$cChk || mysqli_num_rows($cChk) == 0) {
+if (!$cChk || mysqli_num_rows($cChk) === 0) {
     $whNameCol = "name";
 }
 
@@ -33,53 +35,53 @@ if ($check_cols && mysqli_num_rows($check_cols) > 0) {
     $has_expiry = true;
 }
 
-// 3. Out of Stock Query (Qty = 0)
+// 3. Out of Stock Query (Available Qty <= 0)
 $out_of_stock = @mysqli_query($conn, "
     SELECT 
         i.*,
-        COALESCE(p.product_name, i.product_name, 'Stock Item') AS final_product_name,
+        COALESCE(p.product_name, i.product_name, 'Catalog Stock Item') AS final_product_name,
         COALESCE(p.sku, p.product_code, i.product_code, 'SKU-00') AS final_sku,
-        COALESCE(w.{$whNameCol}, i.warehouse, 'Main Facility') AS final_warehouse,
-        i.available_qty AS quantity,
-        i.bin_location AS location
+        COALESCE(w.{$whNameCol}, i.warehouse, 'Surat Central Logistics Park') AS final_warehouse,
+        COALESCE(i.available_qty, 0) AS quantity,
+        COALESCE(i.bin_location, 'DOCK-INWARD') AS location
     FROM inventory i
-    LEFT JOIN products p ON p.id = i.product_id
-    LEFT JOIN `{$whTable}` w ON w.id = i.warehouse_id
-    WHERE i.available_qty = 0 
+    LEFT JOIN products p ON (p.id = i.product_id OR p.product_code = i.product_code)
+    LEFT JOIN `{$whTable}` w ON (w.id = i.warehouse_id OR w.{$whNameCol} = i.warehouse)
+    WHERE COALESCE(i.available_qty, 0) <= 0 
     ORDER BY final_product_name ASC
 ");
 
-// 4. Low Stock Query (Qty between 1 and 10)
+// 4. Low Stock Query (Available Qty between 1 and 10)
 $low_stock = @mysqli_query($conn, "
     SELECT 
         i.*,
-        COALESCE(p.product_name, i.product_name, 'Stock Item') AS final_product_name,
+        COALESCE(p.product_name, i.product_name, 'Catalog Stock Item') AS final_product_name,
         COALESCE(p.sku, p.product_code, i.product_code, 'SKU-00') AS final_sku,
-        COALESCE(w.{$whNameCol}, i.warehouse, 'Main Facility') AS final_warehouse,
-        i.available_qty AS quantity,
-        i.bin_location AS location
+        COALESCE(w.{$whNameCol}, i.warehouse, 'Surat Central Logistics Park') AS final_warehouse,
+        COALESCE(i.available_qty, 0) AS quantity,
+        COALESCE(i.bin_location, 'DOCK-INWARD') AS location
     FROM inventory i
-    LEFT JOIN products p ON p.id = i.product_id
-    LEFT JOIN `{$whTable}` w ON w.id = i.warehouse_id
-    WHERE i.available_qty > 0 AND i.available_qty <= 10 
+    LEFT JOIN products p ON (p.id = i.product_id OR p.product_code = i.product_code)
+    LEFT JOIN `{$whTable}` w ON (w.id = i.warehouse_id OR w.{$whNameCol} = i.warehouse)
+    WHERE COALESCE(i.available_qty, 0) > 0 AND COALESCE(i.available_qty, 0) <= 10 
     ORDER BY i.available_qty ASC
 ");
 
-// 5. Expiry Queries
+// 5. Expiry Queries (FEFO Schedule)
 if ($has_expiry) {
     $expiring = @mysqli_query($conn, "
         SELECT 
             i.*,
-            COALESCE(p.product_name, i.product_name, 'Stock Item') AS final_product_name,
+            COALESCE(p.product_name, i.product_name, 'Catalog Stock Item') AS final_product_name,
             COALESCE(p.sku, p.product_code, i.product_code, 'SKU-00') AS final_sku,
-            COALESCE(w.{$whNameCol}, i.warehouse, 'Main Facility') AS final_warehouse,
-            i.available_qty AS quantity,
-            i.bin_location AS location,
-            COALESCE(i.batch_no, i.batch_number, 'BATCH-01') AS final_batch,
-            DATEDIFF(i.expiry_date, CURDATE()) as days_left 
+            COALESCE(w.{$whNameCol}, i.warehouse, 'Surat Central Logistics Park') AS final_warehouse,
+            COALESCE(i.available_qty, 0) AS quantity,
+            COALESCE(i.bin_location, 'DOCK-INWARD') AS location,
+            COALESCE(i.batch_no, 'BAT-STD') AS final_batch,
+            DATEDIFF(i.expiry_date, CURDATE()) AS days_left 
         FROM inventory i 
-        LEFT JOIN products p ON p.id = i.product_id
-        LEFT JOIN `{$whTable}` w ON w.id = i.warehouse_id
+        LEFT JOIN products p ON (p.id = i.product_id OR p.product_code = i.product_code)
+        LEFT JOIN `{$whTable}` w ON (w.id = i.warehouse_id OR w.{$whNameCol} = i.warehouse)
         WHERE i.expiry_date IS NOT NULL 
           AND i.expiry_date != '0000-00-00'
           AND i.expiry_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 30 DAY) 
@@ -89,16 +91,16 @@ if ($has_expiry) {
     $expired = @mysqli_query($conn, "
         SELECT 
             i.*,
-            COALESCE(p.product_name, i.product_name, 'Stock Item') AS final_product_name,
+            COALESCE(p.product_name, i.product_name, 'Catalog Stock Item') AS final_product_name,
             COALESCE(p.sku, p.product_code, i.product_code, 'SKU-00') AS final_sku,
-            COALESCE(w.{$whNameCol}, i.warehouse, 'Main Facility') AS final_warehouse,
-            i.available_qty AS quantity,
-            i.bin_location AS location,
-            COALESCE(i.batch_no, i.batch_number, 'BATCH-01') AS final_batch,
-            DATEDIFF(i.expiry_date, CURDATE()) as days_left 
+            COALESCE(w.{$whNameCol}, i.warehouse, 'Surat Central Logistics Park') AS final_warehouse,
+            COALESCE(i.available_qty, 0) AS quantity,
+            COALESCE(i.bin_location, 'DOCK-INWARD') AS location,
+            COALESCE(i.batch_no, 'BAT-STD') AS final_batch,
+            DATEDIFF(i.expiry_date, CURDATE()) AS days_left 
         FROM inventory i 
-        LEFT JOIN products p ON p.id = i.product_id
-        LEFT JOIN `{$whTable}` w ON w.id = i.warehouse_id
+        LEFT JOIN products p ON (p.id = i.product_id OR p.product_code = i.product_code)
+        LEFT JOIN `{$whTable}` w ON (w.id = i.warehouse_id OR w.{$whNameCol} = i.warehouse)
         WHERE i.expiry_date IS NOT NULL 
           AND i.expiry_date != '0000-00-00'
           AND i.expiry_date < CURDATE() 
@@ -109,11 +111,11 @@ if ($has_expiry) {
     $expired  = false;
 }
 
-// Counts
-$cnt_out_of_stock = $out_of_stock ? mysqli_num_rows($out_of_stock) : 0;
-$cnt_low_stock    = $low_stock ? mysqli_num_rows($low_stock) : 0;
-$cnt_expiring     = $expiring ? mysqli_num_rows($expiring) : 0;
-$cnt_expired      = $expired ? mysqli_num_rows($expired) : 0;
+// Summary Counts
+$cnt_out_of_stock = ($out_of_stock) ? mysqli_num_rows($out_of_stock) : 0;
+$cnt_low_stock    = ($low_stock) ? mysqli_num_rows($low_stock) : 0;
+$cnt_expiring     = ($expiring) ? mysqli_num_rows($expiring) : 0;
+$cnt_expired      = ($expired) ? mysqli_num_rows($expired) : 0;
 
 include $projectRoot . "/includes/header.php";
 ?>
@@ -132,10 +134,7 @@ include $projectRoot . "/includes/header.php";
             <button onclick="window.location.reload()" class="btn btn-outline-secondary rounded-pill px-3 shadow-sm">
                 <i class="fa-solid fa-arrows-rotate me-1"></i> Refresh Alerts
             </button>
-            <a href="expiry.php" class="btn btn-outline-danger rounded-pill px-3 shadow-sm">
-                <i class="fa-solid fa-hourglass-half me-1"></i> FEFO Schedule
-            </a>
-            <a href="/vortex_wms/modules/purchase_orders/index.php" class="btn btn-primary rounded-pill px-3 shadow-sm">
+            <a href="/vortex_wms/modules/purchase_orders/create.php" class="btn btn-primary rounded-pill px-3 shadow-sm">
                 <i class="fa-solid fa-plus me-1"></i> Create Inbound PO
             </a>
         </div>
@@ -211,13 +210,13 @@ include $projectRoot . "/includes/header.php";
                                                 <code class="text-danger font-monospace"><?= htmlspecialchars($row['final_sku']); ?></code>
                                             </td>
                                             <td>
-                                                <span class="badge bg-light text-dark border font-monospace"><?= htmlspecialchars($row['location'] ?? 'L0-A1'); ?></span>
+                                                <span class="badge bg-light text-dark border font-monospace"><?= htmlspecialchars($row['location']); ?></span>
                                                 <small class="d-block text-muted" style="font-size:11px;"><?= htmlspecialchars($row['final_warehouse']); ?></small>
                                             </td>
                                             <td class="text-center"><span class="badge bg-danger fs-6 px-2 py-1 rounded-pill">0</span></td>
                                             <td><span class="badge bg-danger-subtle text-danger px-2 py-1 rounded-pill">Depleted</span></td>
                                             <td class="text-end">
-                                                <a href="/vortex_wms/modules/purchase_orders/index.php" class="btn btn-outline-danger btn-sm rounded-pill" title="Order Stock">
+                                                <a href="/vortex_wms/modules/purchase_orders/create.php?sku=<?= urlencode($row['final_sku']); ?>" class="btn btn-outline-danger btn-sm rounded-pill" title="Order Stock">
                                                     <i class="fa-solid fa-cart-plus"></i> PO
                                                 </a>
                                             </td>
@@ -234,14 +233,14 @@ include $projectRoot . "/includes/header.php";
                                                 <code class="text-primary font-monospace"><?= htmlspecialchars($row['final_sku']); ?></code>
                                             </td>
                                             <td>
-                                                <span class="badge bg-light text-dark border font-monospace"><?= htmlspecialchars($row['location'] ?? 'L0-A1'); ?></span>
+                                                <span class="badge bg-light text-dark border font-monospace"><?= htmlspecialchars($row['location']); ?></span>
                                                 <small class="d-block text-muted" style="font-size:11px;"><?= htmlspecialchars($row['final_warehouse']); ?></small>
                                             </td>
                                             <td class="text-center"><span class="badge bg-warning text-dark fs-6 px-2 py-1 rounded-pill"><?= (int)$row['quantity']; ?></span></td>
                                             <td><span class="badge bg-warning-subtle text-warning px-2 py-1 rounded-pill">Low Stock</span></td>
                                             <td class="text-end">
-                                                <a href="edit.php?id=<?= $row['id']; ?>" class="btn btn-outline-warning btn-sm rounded-pill" title="Edit Quantity">
-                                                    <i class="fa-solid fa-pen"></i>
+                                                <a href="/vortex_wms/modules/inventory/stock_adjustment/create.php?inventory_id=<?= $row['id']; ?>" class="btn btn-outline-warning btn-sm rounded-pill text-dark" title="Adjust Stock">
+                                                    <i class="fa-solid fa-sliders"></i>
                                                 </a>
                                             </td>
                                         </tr>

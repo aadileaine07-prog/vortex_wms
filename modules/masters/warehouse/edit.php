@@ -1,49 +1,77 @@
 <?php
-session_start();
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
+// Multi-Level Project Root Detection
+$projectRoot = file_exists(__DIR__ . "/../../../config/database.php") 
+    ? dirname(__DIR__, 3) 
+    : (file_exists(__DIR__ . "/../../config/database.php") ? dirname(__DIR__, 2) : dirname(__DIR__, 1));
 
 if (!isset($_SESSION['employee_id'])) {
-    header("Location: ../../../login.php");
+    header("Location: /vortex_wms/login.php");
     exit();
 }
 
-require_once "../../../config/database.php";
+require_once $projectRoot . "/config/database.php";
 
-if (!isset($_GET['id']) || empty($_GET['id'])) {
-    $_SESSION['error'] = "Warehouse ID Missing.";
+$id = intval($_GET['id'] ?? 0);
+
+if ($id <= 0) {
+    $_SESSION['error'] = "Warehouse ID is missing.";
     header("Location: index.php");
     exit();
 }
 
-$id = intval($_GET['id']);
+/* ==========================================================================
+   1. DYNAMIC WAREHOUSE SCHEMA RESOLUTION
+   ========================================================================== */
 
-$warehouse = mysqli_query($conn, "SELECT * FROM warehouse WHERE id='$id'");
-
-if (!$warehouse || mysqli_num_rows($warehouse) == 0) {
-    $_SESSION['error'] = "Warehouse Not Found.";
-    header("Location: index.php");
-    exit();
+$whTable = "warehouse";
+$chkTable = @mysqli_query($conn, "SHOW TABLES LIKE 'warehouse'");
+if (!$chkTable || mysqli_num_rows($chkTable) === 0) {
+    $whTable = "warehouses";
 }
 
-$row = mysqli_fetch_assoc($warehouse);
+$whNameCol = "warehouse_name";
+$cChk = @mysqli_query($conn, "SHOW COLUMNS FROM `{$whTable}` LIKE 'warehouse_name'");
+if (!$cChk || mysqli_num_rows($cChk) === 0) {
+    $whNameCol = "name";
+}
 
-if (isset($_POST['update'])) {
+$whCodeCol = "warehouse_code";
+$cChkCode = @mysqli_query($conn, "SHOW COLUMNS FROM `{$whTable}` LIKE 'warehouse_code'");
+if (!$cChkCode || mysqli_num_rows($cChkCode) === 0) {
+    $whCodeCol = "code";
+}
 
-    $warehouse_code = mysqli_real_escape_string($conn, $_POST['warehouse_code']);
-    $warehouse_name = mysqli_real_escape_string($conn, $_POST['warehouse_name']);
-    $location       = mysqli_real_escape_string($conn, $_POST['location']);
-    $status         = mysqli_real_escape_string($conn, $_POST['status']);
+$whLocCol = "location";
+$cChkLoc = @mysqli_query($conn, "SHOW COLUMNS FROM `{$whTable}` LIKE 'location'");
+if (!$cChkLoc || mysqli_num_rows($cChkLoc) === 0) {
+    $whLocCol = "address";
+}
+
+/* ==========================================================================
+   2. HANDLE WAREHOUSE UPDATE SUBMISSION
+   ========================================================================== */
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update'])) {
+    $warehouse_code = mysqli_real_escape_string($conn, trim($_POST['warehouse_code']));
+    $warehouse_name = mysqli_real_escape_string($conn, trim($_POST['warehouse_name']));
+    $location       = mysqli_real_escape_string($conn, trim($_POST['location']));
+    $status         = mysqli_real_escape_string($conn, trim($_POST['status']));
 
     $updateSql = "
-        UPDATE warehouse SET
-            warehouse_code = '$warehouse_code',
-            warehouse_name = '$warehouse_name',
-            location       = '$location',
-            status         = '$status'
-        WHERE id = '$id'
+        UPDATE `{$whTable}` SET
+            `{$whCodeCol}` = '$warehouse_code',
+            `{$whNameCol}` = '$warehouse_name',
+            `{$whLocCol}`  = '$location',
+            `status`       = '$status'
+        WHERE `id` = '$id'
     ";
 
     if (mysqli_query($conn, $updateSql)) {
-        $_SESSION['success'] = "Warehouse updated successfully.";
+        $_SESSION['success'] = "Warehouse facility <strong>{$warehouse_name}</strong> updated successfully.";
         header("Location: index.php");
         exit();
     } else {
@@ -51,70 +79,119 @@ if (isset($_POST['update'])) {
     }
 }
 
-include "../../../includes/header.php";
-include "../../../includes/navbar.php";
-include "../../../includes/sidebar.php";
+/* ==========================================================================
+   3. FETCH EXISTING WAREHOUSE DATA
+   ========================================================================== */
+
+$warehouseQuery = mysqli_query($conn, "
+    SELECT 
+        id, 
+        {$whCodeCol} AS wh_code, 
+        {$whNameCol} AS wh_name, 
+        COALESCE({$whLocCol}, '') AS wh_location,
+        COALESCE(status, 'Active') AS status
+    FROM `{$whTable}` 
+    WHERE id = '$id' 
+    LIMIT 1
+");
+
+if (!$warehouseQuery || mysqli_num_rows($warehouseQuery) === 0) {
+    $_SESSION['error'] = "Warehouse #{$id} not found.";
+    header("Location: index.php");
+    exit();
+}
+
+$row = mysqli_fetch_assoc($warehouseQuery);
+
+include $projectRoot . "/includes/header.php";
 ?>
 
-<div class="content">
-    <div class="container-fluid p-4">
+<div class="container-fluid p-0">
 
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <div>
-                <h2 class="fw-bold text-dark mb-1"><i class="fa-solid fa-pen-to-square text-warning me-2"></i>Edit Warehouse</h2>
-                <p class="text-muted mb-0">Update location details (#<?= $row['id']; ?>)</p>
-            </div>
-            <a href="index.php" class="btn btn-secondary px-3"><i class="fa-solid fa-arrow-left me-1"></i> Back</a>
+    <!-- Header Navigation -->
+    <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+        <div>
+            <h2 class="fw-bold text-dark mb-1">
+                <i class="fa-solid fa-pen-to-square text-warning me-2"></i>Edit Warehouse Facility
+            </h2>
+            <p class="text-muted mb-0">Modify facility codes, logistics location addresses & operational status</p>
         </div>
-
-        <?php if (isset($_SESSION['error'])): ?>
-            <div class="alert alert-danger alert-dismissible fade show" role="alert">
-                <i class="fa-solid fa-triangle-exclamation me-2"></i><?= $_SESSION['error']; unset($_SESSION['error']); ?>
-                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-            </div>
-        <?php endif; ?>
-
-        <div class="card shadow-sm border-0 rounded-3">
-            <div class="card-body p-4">
-                <form method="POST">
-                    <div class="row g-3">
-
-                        <div class="col-md-6">
-                            <label class="form-label fw-semibold">Warehouse Code <span class="text-danger">*</span></label>
-                            <input type="text" name="warehouse_code" class="form-control" value="<?= htmlspecialchars($row['warehouse_code']); ?>" required>
-                        </div>
-
-                        <div class="col-md-6">
-                            <label class="form-label fw-semibold">Warehouse Name <span class="text-danger">*</span></label>
-                            <input type="text" name="warehouse_name" class="form-control" value="<?= htmlspecialchars($row['warehouse_name']); ?>" required>
-                        </div>
-
-                        <div class="col-md-8">
-                            <label class="form-label fw-semibold">Location / Address <span class="text-danger">*</span></label>
-                            <input type="text" name="location" class="form-control" value="<?= htmlspecialchars($row['location']); ?>" required>
-                        </div>
-
-                        <div class="col-md-4">
-                            <label class="form-label fw-semibold">Status <span class="text-danger">*</span></label>
-                            <select name="status" class="form-select" required>
-                                <option value="Active" <?= ($row['status'] == 'Active') ? 'selected' : ''; ?>>Active</option>
-                                <option value="Inactive" <?= ($row['status'] == 'Inactive') ? 'selected' : ''; ?>>Inactive</option>
-                            </select>
-                        </div>
-
-                    </div>
-
-                    <hr class="my-4">
-
-                    <div class="d-flex justify-content-between">
-                        <a href="index.php" class="btn btn-outline-secondary px-3"><i class="fa-solid fa-arrow-left me-1"></i> Cancel</a>
-                        <button type="submit" name="update" class="btn btn-warning px-4"><i class="fa-solid fa-floppy-disk me-1"></i> Update Warehouse</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-
+        <a href="index.php" class="btn btn-secondary fw-semibold rounded-pill px-3 shadow-sm">
+            <i class="fa-solid fa-arrow-left me-1"></i> Back to Facilities
+        </a>
     </div>
+
+    <!-- Alert Notifications -->
+    <?php if (isset($_SESSION['error'])): ?>
+        <div class="alert alert-danger alert-dismissible fade show rounded-4 border-0 shadow-sm mb-4" role="alert">
+            <i class="fa-solid fa-triangle-exclamation me-2"></i><?= $_SESSION['error']; unset($_SESSION['error']); ?>
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    <?php endif; ?>
+
+    <!-- Form Card -->
+    <div class="card shadow-sm border-0 rounded-4 bg-white col-xl-9 mx-auto mb-4">
+        <div class="card-header bg-white border-0 pt-4 px-4 pb-0 d-flex justify-content-between align-items-center">
+            <h5 class="fw-bold mb-0 text-dark">
+                <i class="fa-solid fa-warehouse text-primary me-2"></i>Facility Information Form
+            </h5>
+            <span class="badge bg-warning-subtle text-dark border border-warning-subtle px-3 py-1 rounded-pill font-monospace">
+                EDITING ID #<?= $row['id']; ?>
+            </span>
+        </div>
+
+        <div class="card-body p-4">
+            <form method="POST">
+                <div class="row g-4">
+
+                    <!-- Warehouse Code -->
+                    <div class="col-md-6">
+                        <label class="form-label small fw-bold text-muted">Facility / Warehouse Code *</label>
+                        <div class="input-group">
+                            <span class="input-group-text bg-light border-2"><i class="fa-solid fa-barcode text-muted"></i></span>
+                            <input type="text" name="warehouse_code" class="form-control border-2 font-monospace fw-bold text-uppercase" value="<?= htmlspecialchars($row['wh_code']); ?>" required>
+                        </div>
+                    </div>
+
+                    <!-- Warehouse Name -->
+                    <div class="col-md-6">
+                        <label class="form-label small fw-bold text-muted">Warehouse Name *</label>
+                        <div class="input-group">
+                            <span class="input-group-text bg-light border-2"><i class="fa-solid fa-building text-muted"></i></span>
+                            <input type="text" name="warehouse_name" class="form-control border-2 fw-semibold" value="<?= htmlspecialchars($row['wh_name']); ?>" required>
+                        </div>
+                    </div>
+
+                    <!-- Location / Address -->
+                    <div class="col-md-8">
+                        <label class="form-label small fw-bold text-muted">Physical Location / Address *</label>
+                        <div class="input-group">
+                            <span class="input-group-text bg-light border-2"><i class="fa-solid fa-location-dot text-danger"></i></span>
+                            <input type="text" name="location" class="form-control border-2" value="<?= htmlspecialchars($row['wh_location']); ?>" required>
+                        </div>
+                    </div>
+
+                    <!-- Status -->
+                    <div class="col-md-4">
+                        <label class="form-label small fw-bold text-muted">Operating Status *</label>
+                        <select name="status" class="form-select border-2 fw-semibold" required>
+                            <option value="Active" <?= (strtolower($row['status']) === 'active' || $row['status'] == '1') ? 'selected' : ''; ?>>Active</option>
+                            <option value="Inactive" <?= (strtolower($row['status']) === 'inactive' || $row['status'] == '0') ? 'selected' : ''; ?>>Inactive</option>
+                        </select>
+                    </div>
+
+                </div>
+
+                <div class="d-flex justify-content-between align-items-center border-top pt-4 mt-4 flex-wrap gap-2">
+                    <a href="index.php" class="btn btn-outline-secondary px-4 rounded-pill">Cancel</a>
+                    <button type="submit" name="update" class="btn btn-warning px-5 fw-bold shadow-sm rounded-pill text-dark">
+                        <i class="fa-solid fa-floppy-disk me-1"></i> Update Warehouse
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
 </div>
 
-<?php include "../../../includes/footer.php"; ?>
+<?php include $projectRoot . "/includes/footer.php"; ?>

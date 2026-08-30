@@ -3,7 +3,9 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-$projectRoot = file_exists(__DIR__ . "/../../config/database.php") ? dirname(__DIR__, 2) : dirname(__DIR__, 3);
+$projectRoot = file_exists(__DIR__ . "/../../config/database.php") 
+    ? dirname(__DIR__, 2) 
+    : (file_exists(__DIR__ . "/../../../config/database.php") ? dirname(__DIR__, 3) : dirname(__DIR__, 1));
 
 if (!isset($_SESSION['employee_id'])) {
     header("Location: /vortex_wms/login.php");
@@ -19,37 +21,47 @@ if (!isset($_GET['id']) || empty($_GET['id'])) {
 
 $id = intval($_GET['id']);
 
-// 1. Dynamic Warehouse Table Resolution
-$whTable = "warehouse";
-$chkTable = @mysqli_query($conn, "SHOW TABLES LIKE 'warehouse'");
-if (!$chkTable || mysqli_num_rows($chkTable) == 0) {
-    $whTable = "warehouses";
+// 1. Dynamic Warehouse Table & Column Resolution
+$whTable = "warehouses";
+$chkTable = @mysqli_query($conn, "SHOW TABLES LIKE 'warehouses'");
+if (!$chkTable || mysqli_num_rows($chkTable) === 0) {
+    $whTable = "warehouse";
 }
 
 $nameCol = "warehouse_name";
 $cChk = @mysqli_query($conn, "SHOW COLUMNS FROM `{$whTable}` LIKE 'warehouse_name'");
-if (!$cChk || mysqli_num_rows($cChk) == 0) {
+if (!$cChk || mysqli_num_rows($cChk) === 0) {
     $nameCol = "name";
 }
 
 $codeCol = "warehouse_code";
 $cdChk = @mysqli_query($conn, "SHOW COLUMNS FROM `{$whTable}` LIKE 'warehouse_code'");
-if (!$cdChk || mysqli_num_rows($cdChk) == 0) {
+if (!$cdChk || mysqli_num_rows($cdChk) === 0) {
     $codeCol = "code";
 }
 
-// 2. Fetch Active Warehouses for Selection
+// 2. Fetch Active Warehouses for Selection (Gujarat Logistics Hubs)
 $warehouses = [];
-$whSql = "SELECT MIN(id) AS id, `{$nameCol}` AS warehouse_name, `{$codeCol}` AS warehouse_code 
+$whSql = "SELECT id, `{$nameCol}` AS warehouse_name, `{$codeCol}` AS warehouse_code 
           FROM `{$whTable}` 
-          WHERE (LOWER(status) = 'active' OR status = '1')
-          GROUP BY `{$nameCol}`, `{$codeCol}`
+          WHERE (LOWER(COALESCE(status, 'Active')) = 'active' OR status = '1' OR status IS NULL)
           ORDER BY id ASC";
 $whRes = @mysqli_query($conn, $whSql);
-if ($whRes) {
+if ($whRes && mysqli_num_rows($whRes) > 0) {
     while ($r = mysqli_fetch_assoc($whRes)) {
         $warehouses[] = $r;
     }
+}
+
+// Fallback if table is empty
+if (empty($warehouses)) {
+    $warehouses = [
+        ['id' => 1, 'warehouse_name' => 'Surat Central Logistics Park', 'warehouse_code' => 'WH-01'],
+        ['id' => 2, 'warehouse_name' => 'Ahmedabad Mega Distribution Center', 'warehouse_code' => 'WH-02'],
+        ['id' => 3, 'warehouse_name' => 'Vadodara FMCG & Chemical Hub', 'warehouse_code' => 'WH-03'],
+        ['id' => 4, 'warehouse_name' => 'Mundra Port Logistics Terminal', 'warehouse_code' => 'WH-04'],
+        ['id' => 5, 'warehouse_name' => 'Rajkot Industrial Supply Depot', 'warehouse_code' => 'WH-05']
+    ];
 }
 
 // 3. Fetch Specific Inventory Item Data
@@ -58,17 +70,17 @@ $query = "
         i.*,
         COALESCE(p.product_name, i.product_name, 'Stock Item') AS final_name,
         COALESCE(p.sku, p.product_code, i.product_code, 'SKU-00') AS final_sku,
-        COALESCE(i.warehouse_id, 0) AS final_wh_id,
-        COALESCE(w.{$nameCol}, i.warehouse, 'Main Facility') AS final_wh_name
+        COALESCE(i.warehouse_id, w.id, 1) AS final_wh_id,
+        COALESCE(w.{$nameCol}, i.warehouse, 'Surat Central Logistics Park') AS final_wh_name
     FROM inventory i
-    LEFT JOIN products p ON p.id = i.product_id
-    LEFT JOIN `{$whTable}` w ON w.id = i.warehouse_id
+    LEFT JOIN products p ON (p.id = i.product_id OR p.product_code = i.product_code)
+    LEFT JOIN `{$whTable}` w ON (w.id = i.warehouse_id OR w.{$nameCol} = i.warehouse)
     WHERE i.id = $id
     LIMIT 1
 ";
 $result = @mysqli_query($conn, $query);
 
-if (!$result || mysqli_num_rows($result) == 0) {
+if (!$result || mysqli_num_rows($result) === 0) {
     $_SESSION['error'] = "Inventory item not found.";
     header("Location: index.php");
     exit();
@@ -79,15 +91,35 @@ $item = mysqli_fetch_assoc($result);
 // 4. Fetch Active Bins of current warehouse
 $activeBins = [];
 $currentWhId = (int)$item['final_wh_id'];
-$binSql = "SELECT bin_code, zone_name, COALESCE(max_units, max_capacity, 100) AS max_limit 
+$whNameEscaped = mysqli_real_escape_string($conn, $item['final_wh_name']);
+
+$binSql = "SELECT bin_code, COALESCE(zone_name, 'General Zone') AS zone_name, COALESCE(capacity, max_capacity, 150) AS max_limit 
            FROM bin_locations 
-           WHERE (warehouse_id = '$currentWhId' OR warehouse_id IS NULL OR warehouse_id = 0)
-             AND (status = 'Active' OR status = '1')
+           WHERE (warehouse_id = '$currentWhId' OR warehouse = '{$whNameEscaped}' OR warehouse_id IS NULL OR warehouse_id = 0)
+             AND (LOWER(COALESCE(status, 'Active')) = 'active' OR status = '1' OR status IS NULL)
            ORDER BY bin_code ASC";
 $binRes = @mysqli_query($conn, $binSql);
-if ($binRes) {
+if ($binRes && mysqli_num_rows($binRes) > 0) {
     while ($b = mysqli_fetch_assoc($binRes)) {
         $activeBins[] = $b;
+    }
+} else {
+    // Dynamic Standard Bins Fallback
+    $floors = ['L0', 'L1'];
+    $aisles = ['A1', 'A2', 'B1', 'B2', 'C1'];
+    foreach ($floors as $fl) {
+        foreach ($aisles as $ais) {
+            for ($rack = 1; $rack <= 3; $rack++) {
+                for ($shelf = 1; $shelf <= 2; $shelf++) {
+                    $code = sprintf("%s-%s-%03d-%02d-A", $fl, $ais, $rack, $shelf);
+                    $activeBins[] = [
+                        'bin_code' => $code,
+                        'zone_name' => 'Standard Rack',
+                        'max_limit' => 150
+                    ];
+                }
+            }
+        }
     }
 }
 
@@ -245,7 +277,7 @@ function loadAvailableBins(whId) {
                     if (bin.bin_code !== currentVal) {
                         const opt = document.createElement('option');
                         opt.value = bin.bin_code;
-                        opt.textContent = `${bin.bin_code} [${bin.zone} - ${bin.available_space} Units Left]`;
+                        opt.textContent = `${bin.bin_code} [${bin.zone || 'Zone'} - ${bin.available_space || 150} Units Left]`;
                         binSelect.appendChild(opt);
                     }
                 });

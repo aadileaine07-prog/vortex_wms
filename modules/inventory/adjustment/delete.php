@@ -3,7 +3,9 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-$projectRoot = file_exists(__DIR__ . "/../../../config/database.php") ? dirname(__DIR__, 3) : dirname(__DIR__, 4);
+$projectRoot = file_exists(__DIR__ . "/../../../config/database.php") 
+    ? dirname(__DIR__, 3) 
+    : (file_exists(__DIR__ . "/../../../../config/database.php") ? dirname(__DIR__, 4) : dirname(__DIR__, 2));
 
 if (!isset($_SESSION['employee_id'])) {
     header("Location: /vortex_wms/login.php");
@@ -22,7 +24,7 @@ $id = intval($_GET['id']);
 // 1. Dynamic Table Detection
 $adjTable = "stock_adjustments";
 $chkTable = @mysqli_query($conn, "SHOW TABLES LIKE 'stock_adjustments'");
-if (!$chkTable || mysqli_num_rows($chkTable) == 0) {
+if (!$chkTable || mysqli_num_rows($chkTable) === 0) {
     $chkTable2 = @mysqli_query($conn, "SHOW TABLES LIKE 'stock_adjustment'");
     if ($chkTable2 && mysqli_num_rows($chkTable2) > 0) {
         $adjTable = "stock_adjustment";
@@ -33,7 +35,7 @@ if (!$chkTable || mysqli_num_rows($chkTable) == 0) {
 
 // 2. Fetch the adjustment record
 $adj_query = mysqli_query($conn, "SELECT * FROM `{$adjTable}` WHERE id = '$id' LIMIT 1");
-if (!$adj_query || mysqli_num_rows($adj_query) == 0) {
+if (!$adj_query || mysqli_num_rows($adj_query) === 0) {
     $_SESSION['error'] = "Stock adjustment record not found.";
     header("Location: index.php");
     exit();
@@ -52,9 +54,16 @@ mysqli_begin_transaction($conn);
 try {
     // Locate target inventory item
     $whereConds = [];
-    if ($inventory_id > 0) $whereConds[] = "id = '$inventory_id'";
-    if ($product_id > 0)   $whereConds[] = "product_id = '$product_id'";
-    if (!empty($product_code)) $whereConds[] = "product_code = '$product_code' OR sku = '$product_code'";
+    if ($inventory_id > 0) {
+        $whereConds[] = "id = '$inventory_id'";
+    }
+    if ($product_id > 0) {
+        $whereConds[] = "product_id = '$product_id'";
+    }
+    if (!empty($product_code)) {
+        $pCodeEscaped = mysqli_real_escape_string($conn, $product_code);
+        $whereConds[] = "product_code = '{$pCodeEscaped}'";
+    }
 
     $whereSql = !empty($whereConds) ? implode(" OR ", $whereConds) : "id = 0";
     $inv_res = mysqli_query($conn, "SELECT id, available_qty FROM inventory WHERE {$whereSql} LIMIT 1");

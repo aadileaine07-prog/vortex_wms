@@ -3,7 +3,9 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-$projectRoot = file_exists(__DIR__ . "/../../../config/database.php") ? dirname(__DIR__, 3) : dirname(__DIR__, 4);
+$projectRoot = file_exists(__DIR__ . "/../../../config/database.php") 
+    ? dirname(__DIR__, 3) 
+    : (file_exists(__DIR__ . "/../../../../config/database.php") ? dirname(__DIR__, 4) : dirname(__DIR__, 2));
 
 if (!isset($_SESSION['employee_id'])) {
     header("Location: /vortex_wms/login.php");
@@ -32,7 +34,7 @@ if ($inventory_id <= 0 || $quantity <= 0) {
 
 // 1. Fetch Current Inventory Record
 $inventory_query = mysqli_query($conn, "SELECT * FROM inventory WHERE id = '$inventory_id' LIMIT 1");
-if (!$inventory_query || mysqli_num_rows($inventory_query) == 0) {
+if (!$inventory_query || mysqli_num_rows($inventory_query) === 0) {
     $_SESSION['error'] = "Inventory Item Not Found in Ledger.";
     header("Location: create.php");
     exit();
@@ -42,27 +44,29 @@ $item         = mysqli_fetch_assoc($inventory_query);
 $product_id   = intval($item['product_id'] ?? 0);
 $product_code = $item['product_code'] ?? ($item['sku'] ?? 'SKU-00');
 $product_name = $item['product_name'] ?? 'Stock Item';
-$warehouse    = $item['warehouse'] ?? '';
-$bin_location = $item['bin_location'] ?? 'L0-A1';
+$warehouse_id = intval($item['warehouse_id'] ?? 1);
+$warehouse    = $item['warehouse'] ?? 'Surat Central Logistics Park';
+$bin_location = $item['bin_location'] ?? 'DOCK-INWARD';
 $current_qty  = intval($item['available_qty']);
 
 // 2. Quantity & Status Calculation
 if (strcasecmp($adjustment_type, "Increase") === 0) {
     $new_qty = $current_qty + $quantity;
     
-    // Optional: Bin Capacity Validation on Increase
-    $binChk = @mysqli_query($conn, "SELECT COALESCE(max_units, max_capacity, 100) AS max_limit FROM bin_locations WHERE bin_code = '$bin_location' LIMIT 1");
+    // Bin Capacity Validation on Increase
+    $binChk = @mysqli_query($conn, "SELECT COALESCE(capacity, max_units, max_capacity, 150) AS max_limit FROM bin_locations WHERE bin_code = '$bin_location' LIMIT 1");
     if ($binChk && $bRow = mysqli_fetch_assoc($binChk)) {
-        if ($new_qty > $bRow['max_limit']) {
-            $_SESSION['error'] = "⚠️ Bin Overcapacity: {$bin_location} has a maximum limit of {$bRow['max_limit']} units (Adjusted total would be {$new_qty}).";
-            header("Location: create.php");
+        $maxLimit = (int)$bRow['max_limit'];
+        if ($new_qty > $maxLimit) {
+            $_SESSION['error'] = "Bin Overcapacity: {$bin_location} has a maximum limit of {$maxLimit} units (Adjusted total would be {$new_qty}).";
+            header("Location: create.php?inventory_id=" . $inventory_id);
             exit();
         }
     }
 } else {
     if ($quantity > $current_qty) {
         $_SESSION['error'] = "Adjustment deduction quantity ($quantity) cannot exceed available balance ($current_qty units).";
-        header("Location: create.php");
+        header("Location: create.php?inventory_id=" . $inventory_id);
         exit();
     }
     $new_qty = $current_qty - $quantity;
@@ -80,7 +84,7 @@ if ($new_qty <= 0) {
 // 3. Dynamic Adjustment Table Detection
 $adjTable = "stock_adjustments";
 $chkTable = @mysqli_query($conn, "SHOW TABLES LIKE 'stock_adjustments'");
-if (!$chkTable || mysqli_num_rows($chkTable) == 0) {
+if (!$chkTable || mysqli_num_rows($chkTable) === 0) {
     $chkTable2 = @mysqli_query($conn, "SHOW TABLES LIKE 'stock_adjustment'");
     if ($chkTable2 && mysqli_num_rows($chkTable2) > 0) {
         $adjTable = "stock_adjustment";
@@ -112,21 +116,22 @@ try {
     $fields = [];
     $values = [];
 
-    if (in_array('inventory_id', $adjCols)) { $fields[] = 'inventory_id'; $values[] = "'$inventory_id'"; }
-    if (in_array('product_id', $adjCols))   { $fields[] = 'product_id'; $values[] = "'$product_id'"; }
-    if (in_array('product_code', $adjCols)) { $fields[] = 'product_code'; $values[] = "'" . mysqli_real_escape_string($conn, $product_code) . "'"; }
-    if (in_array('product_name', $adjCols)) { $fields[] = 'product_name'; $values[] = "'" . mysqli_real_escape_string($conn, $product_name) . "'"; }
-    if (in_array('warehouse', $adjCols))    { $fields[] = 'warehouse'; $values[] = "'" . mysqli_real_escape_string($conn, $warehouse) . "'"; }
-    if (in_array('bin_location', $adjCols)) { $fields[] = 'bin_location'; $values[] = "'" . mysqli_real_escape_string($conn, $bin_location) . "'"; }
-    if (in_array('adjustment_type', $adjCols)) { $fields[] = 'adjustment_type'; $values[] = "'$adjustment_type'"; }
-    elseif (in_array('type', $adjCols))     { $fields[] = 'type'; $values[] = "'$adjustment_type'"; }
-    if (in_array('quantity', $adjCols))     { $fields[] = 'quantity'; $values[] = "'$quantity'"; }
-    if (in_array('previous_qty', $adjCols)) { $fields[] = 'previous_qty'; $values[] = "'$current_qty'"; }
-    if (in_array('new_qty', $adjCols))      { $fields[] = 'new_qty'; $values[] = "'$new_qty'"; }
-    if (in_array('reason', $adjCols))       { $fields[] = 'reason'; $values[] = "'" . mysqli_real_escape_string($conn, $reason) . "'"; }
-    if (in_array('adjustment_date', $adjCols)) { $fields[] = 'adjustment_date'; $values[] = "'$adjustment_date'"; }
-    if (in_array('created_by', $adjCols))   { $fields[] = 'created_by'; $values[] = "'$created_by'"; }
-    elseif (in_array('adjusted_by', $adjCols)) { $fields[] = 'adjusted_by'; $values[] = "'$created_by'"; }
+    if (in_array('inventory_id', $adjCols)) { $fields[] = '`inventory_id`'; $values[] = "'$inventory_id'"; }
+    if (in_array('product_id', $adjCols))   { $fields[] = '`product_id`'; $values[] = "'$product_id'"; }
+    if (in_array('product_code', $adjCols)) { $fields[] = '`product_code`'; $values[] = "'" . mysqli_real_escape_string($conn, $product_code) . "'"; }
+    if (in_array('product_name', $adjCols)) { $fields[] = '`product_name`'; $values[] = "'" . mysqli_real_escape_string($conn, $product_name) . "'"; }
+    if (in_array('warehouse_id', $adjCols)) { $fields[] = '`warehouse_id`'; $values[] = "'$warehouse_id'"; }
+    if (in_array('warehouse', $adjCols))    { $fields[] = '`warehouse`'; $values[] = "'" . mysqli_real_escape_string($conn, $warehouse) . "'"; }
+    if (in_array('bin_location', $adjCols)) { $fields[] = '`bin_location`'; $values[] = "'" . mysqli_real_escape_string($conn, $bin_location) . "'"; }
+    if (in_array('adjustment_type', $adjCols)) { $fields[] = '`adjustment_type`'; $values[] = "'$adjustment_type'"; }
+    elseif (in_array('type', $adjCols))     { $fields[] = '`type`'; $values[] = "'$adjustment_type'"; }
+    if (in_array('quantity', $adjCols))     { $fields[] = '`quantity`'; $values[] = "'$quantity'"; }
+    if (in_array('previous_qty', $adjCols)) { $fields[] = '`previous_qty`'; $values[] = "'$current_qty'"; }
+    if (in_array('new_qty', $adjCols))      { $fields[] = '`new_qty`'; $values[] = "'$new_qty'"; }
+    if (in_array('reason', $adjCols))       { $fields[] = '`reason`'; $values[] = "'" . mysqli_real_escape_string($conn, $reason) . "'"; }
+    if (in_array('adjustment_date', $adjCols)) { $fields[] = '`adjustment_date`'; $values[] = "'$adjustment_date'"; }
+    if (in_array('created_by', $adjCols))   { $fields[] = '`created_by`'; $values[] = "'$created_by'"; }
+    elseif (in_array('adjusted_by', $adjCols)) { $fields[] = '`adjusted_by`'; $values[] = "'$created_by'"; }
 
     if (!empty($fields)) {
         $log_sql = "INSERT INTO `{$adjTable}` (" . implode(", ", $fields) . ") VALUES (" . implode(", ", $values) . ")";
@@ -146,6 +151,6 @@ try {
 } catch (\Throwable $e) {
     mysqli_rollback($conn);
     $_SESSION['error'] = "Failed to apply stock adjustment: " . $e->getMessage();
-    header("Location: create.php");
+    header("Location: create.php?inventory_id=" . $inventory_id);
     exit();
 }

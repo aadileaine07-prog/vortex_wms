@@ -3,7 +3,9 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-$projectRoot = file_exists(__DIR__ . "/../../config/database.php") ? dirname(__DIR__, 2) : dirname(__DIR__, 3);
+$projectRoot = file_exists(__DIR__ . "/../../config/database.php") 
+    ? dirname(__DIR__, 2) 
+    : (file_exists(__DIR__ . "/../../../config/database.php") ? dirname(__DIR__, 3) : dirname(__DIR__, 1));
 
 if (!isset($_SESSION['employee_id'])) {
     header("Location: /vortex_wms/login.php");
@@ -30,7 +32,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit();
     }
 
-    // 1. Automatic Dynamic Stock Status
+    // 1. Resolve Warehouse ID and Name dynamically
+    $whTable = "warehouses";
+    $chkWh = @mysqli_query($conn, "SHOW TABLES LIKE 'warehouses'");
+    if (!$chkWh || mysqli_num_rows($chkWh) === 0) {
+        $whTable = "warehouse";
+    }
+
+    $nameCol = "warehouse_name";
+    $cChk = @mysqli_query($conn, "SHOW COLUMNS FROM `{$whTable}` LIKE 'warehouse_name'");
+    if (!$cChk || mysqli_num_rows($cChk) === 0) {
+        $nameCol = "name";
+    }
+
+    if ($warehouse_id > 0 && empty($warehouse_raw)) {
+        $wLookup = @mysqli_query($conn, "SELECT `{$nameCol}` AS wh_name FROM `{$whTable}` WHERE id = '$warehouse_id' LIMIT 1");
+        if ($wLookup && $wRow = mysqli_fetch_assoc($wLookup)) {
+            $warehouse_raw = $wRow['wh_name'];
+        }
+    } elseif ($warehouse_id <= 0 && !empty($warehouse_raw)) {
+        $wLookup = @mysqli_query($conn, "SELECT id FROM `{$whTable}` WHERE `{$nameCol}` = '" . mysqli_real_escape_string($conn, $warehouse_raw) . "' LIMIT 1");
+        if ($wLookup && $wRow = mysqli_fetch_assoc($wLookup)) {
+            $warehouse_id = (int)$wRow['id'];
+        }
+    }
+
+    // 2. Automatic Dynamic Stock Status
     if ($available_qty <= 0) {
         $status = "Out of Stock";
     } elseif ($available_qty <= 10) {
@@ -39,11 +66,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $status = "In Stock";
     }
 
-    // 2. Bin Capacity Validation Check (Prevent Overfilling Bins)
+    // 3. Bin Capacity Validation Check (Prevent Overfilling Bins)
     if (!empty($bin_location)) {
         $binChk = @mysqli_query($conn, "
             SELECT 
-                COALESCE(max_units, max_capacity, 100) AS max_limit,
+                COALESCE(capacity, max_units, max_capacity, 150) AS max_limit,
                 (SELECT IFNULL(SUM(available_qty + reserved_qty), 0) FROM inventory WHERE bin_location = '$bin_location' AND id != '$id') AS other_occupied
             FROM bin_locations 
             WHERE bin_code = '$bin_location'
@@ -51,16 +78,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ");
 
         if ($binChk && $bData = mysqli_fetch_assoc($binChk)) {
-            $totalProjected = $bData['other_occupied'] + $available_qty + $reserved_qty;
-            if ($totalProjected > $bData['max_limit']) {
-                $_SESSION['error'] = "⚠️ Capacity Overload: Bin <strong>{$bin_location}</strong> allows max {$bData['max_limit']} units (Projected: {$totalProjected}).";
+            $maxCap = (int)$bData['max_limit'];
+            $totalProjected = (int)$bData['other_occupied'] + $available_qty + $reserved_qty;
+            if ($totalProjected > $maxCap) {
+                $_SESSION['error'] = "Capacity Overload: Bin <strong>{$bin_location}</strong> allows max {$maxCap} units (Projected: {$totalProjected}).";
                 header("Location: edit.php?id=" . $id);
                 exit();
             }
         }
     }
 
-    // 3. Detect Available Inventory Table Columns
+    // 4. Detect Available Inventory Table Columns
     $tableCols = [];
     $colRes = @mysqli_query($conn, "SHOW COLUMNS FROM `inventory`");
     if ($colRes) {

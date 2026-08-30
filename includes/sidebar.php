@@ -149,7 +149,24 @@ $current_page = $_SERVER['REQUEST_URI'] ?? '';
             </a>
         </li>
 
-        <!-- 4. OUTBOUND -->
+        <!-- 4. INBOUND (ADDED) -->
+        <li class="has-submenu mb-1 <?= (strpos($current_page, '/inbound/') !== false || strpos($current_page, '/grn/') !== false) && strpos($current_page, 'reports') === false ? 'open' : ''; ?>">
+            <a href="javascript:void(0);" class="sidebar-link submenu-toggle justify-content-between">
+                <span class="d-flex align-items-center gap-2">
+                    <i class="fa-solid fa-truck-ramp-box text-info"></i>
+                    <span>Inbound</span>
+                </span>
+                <i class="fa-solid fa-chevron-right arrow-icon"></i>
+            </a>
+            <ul class="submenu">
+                <li><a href="/vortex_wms/modules/inbound/index.php" class="sub-link <?= (strpos($current_page, '/inbound/index.php') !== false || strpos($current_page, '/grn/') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-receipt me-2"></i>Goods Receipts (GRN)</a></li>
+                <li><a href="/vortex_wms/modules/inbound/create.php" class="sub-link <?= (strpos($current_page, '/inbound/create.php') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-plus me-2"></i>Inward Entry</a></li>
+                <li><a href="/vortex_wms/modules/inbound/putaway.php" class="sub-link <?= (strpos($current_page, '/inbound/putaway.php') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-dolly me-2 text-primary"></i>Putaway Process</a></li>
+                <li><a href="/vortex_wms/modules/inbound/qc.php" class="sub-link <?= (strpos($current_page, '/inbound/qc.php') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-clipboard-check me-2 text-warning"></i>Quality Check</a></li>
+            </ul>
+        </li>
+
+        <!-- 5. OUTBOUND -->
         <li class="has-submenu mb-1 <?= (strpos($current_page, '/outbound/') !== false && strpos($current_page, 'reports') === false) ? 'open' : ''; ?>">
             <a href="javascript:void(0);" class="sidebar-link submenu-toggle justify-content-between">
                 <span class="d-flex align-items-center gap-2">
@@ -167,7 +184,7 @@ $current_page = $_SERVER['REQUEST_URI'] ?? '';
             </ul>
         </li>
 
-        <!-- 5. MASTER DATA -->
+        <!-- 6. MASTER DATA -->
         <li class="has-submenu mb-1 <?= (strpos($current_page, '/masters/') !== false) ? 'open' : ''; ?>">
             <a href="javascript:void(0);" class="sidebar-link submenu-toggle justify-content-between">
                 <span class="d-flex align-items-center gap-2">
@@ -184,7 +201,7 @@ $current_page = $_SERVER['REQUEST_URI'] ?? '';
             </ul>
         </li>
 
-        <!-- 6. PAYROLL -->
+        <!-- 7. PAYROLL -->
         <li class="has-submenu mb-1 <?= (strpos($current_page, '/payroll/') !== false) ? 'open' : ''; ?>">
             <a href="javascript:void(0);" class="sidebar-link submenu-toggle justify-content-between">
                 <span class="d-flex align-items-center gap-2">
@@ -199,7 +216,7 @@ $current_page = $_SERVER['REQUEST_URI'] ?? '';
             </ul>
         </li>
 
-        <!-- 7. REPORTS -->
+        <!-- 8. REPORTS -->
         <li class="has-submenu mb-1 <?= (strpos($current_page, '/reports/') !== false) ? 'open' : ''; ?>">
             <a href="javascript:void(0);" class="sidebar-link submenu-toggle justify-content-between">
                 <span class="d-flex align-items-center gap-2">
@@ -218,7 +235,7 @@ $current_page = $_SERVER['REQUEST_URI'] ?? '';
             </ul>
         </li>
 
-        <!-- 8. TOOLS & UTILITIES -->
+        <!-- 9. TOOLS & UTILITIES -->
         <li class="has-submenu mb-1 <?= (strpos($current_page, '/tools/') !== false) ? 'open' : ''; ?>">
             <a href="javascript:void(0);" class="sidebar-link submenu-toggle justify-content-between">
                 <span class="d-flex align-items-center gap-2">
@@ -234,7 +251,7 @@ $current_page = $_SERVER['REQUEST_URI'] ?? '';
             </ul>
         </li>
 
-        <!-- 9. NOTIFICATIONS -->
+        <!-- 10. NOTIFICATIONS -->
         <li class="mb-1">
             <a href="/vortex_wms/modules/notifications/index.php" class="sidebar-link <?= (strpos($current_page, 'notifications') !== false) ? 'active' : ''; ?>">
                 <i class="fa-solid fa-bell"></i>
@@ -242,7 +259,7 @@ $current_page = $_SERVER['REQUEST_URI'] ?? '';
             </a>
         </li>
 
-        <!-- 10. COMPANY SETTINGS -->
+        <!-- 11. COMPANY SETTINGS -->
         <li class="mb-1">
             <a href="/vortex_wms/modules/settings/company/index.php" class="sidebar-link <?= (strpos($current_page, 'settings/company') !== false) ? 'active' : ''; ?>">
                 <i class="fa-solid fa-building"></i>
@@ -250,7 +267,7 @@ $current_page = $_SERVER['REQUEST_URI'] ?? '';
             </a>
         </li>
 
-        <!-- 11. SYSTEM SETTINGS -->
+        <!-- 12. SYSTEM SETTINGS -->
         <li class="mb-1">
             <a href="/vortex_wms/modules/system_settings/index.php" class="sidebar-link <?= (strpos($current_page, 'system_settings') !== false) ? 'active' : ''; ?>">
                 <i class="fa-solid fa-gear"></i>
@@ -260,7 +277,7 @@ $current_page = $_SERVER['REQUEST_URI'] ?? '';
 
         <li class="my-2 border-top border-secondary border-opacity-25"></li>
 
-        <!-- 12. LOGOUT -->
+        <!-- 13. LOGOUT -->
         <li>
             <a href="/vortex_wms/logout.php" class="sidebar-link text-danger">
                 <i class="fa-solid fa-right-from-bracket"></i>

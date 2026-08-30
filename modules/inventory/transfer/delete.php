@@ -50,9 +50,10 @@ $row = mysqli_fetch_assoc($result);
 
 $product_id     = intval($row['product_id'] ?? 0);
 $product_code   = trim($row['product_code'] ?? ($row['sku'] ?? ''));
+$product_name   = trim($row['product_name'] ?? '');
 $inventory_id   = intval($row['inventory_id'] ?? 0);
 $qty            = intval($row['quantity'] ?? 0);
-$from_warehouse = trim($row['from_warehouse'] ?? '');
+$from_warehouse = trim($row['from_warehouse'] ?? 'Surat Central Logistics Park');
 $from_bin       = trim($row['from_bin'] ?? '');
 $to_warehouse   = trim($row['to_warehouse'] ?? '');
 $to_bin         = trim($row['to_bin'] ?? '');
@@ -66,17 +67,17 @@ mysqli_begin_transaction($conn);
 try {
 
     // -------------------------------------------------------------
-    // STEP A: Return Stock to Source Coordinate (Re-add Quantity)
+    // STEP A: Return Stock to Source Coordinate (Re-add / Recreate)
     // -------------------------------------------------------------
     $srcWhere = [];
     if ($inventory_id > 0) {
         $srcWhere[] = "id = '$inventory_id'";
     }
     if ($product_id > 0) {
-        $srcWhere[] = "(product_id = '$product_id' AND (warehouse = '" . mysqli_real_escape_string($conn, $from_warehouse) . "' OR warehouse_id = '" . intval($row['from_warehouse_id'] ?? 0) . "') AND bin_location = '" . mysqli_real_escape_string($conn, $from_bin) . "')";
+        $srcWhere[] = "(product_id = '$product_id' AND warehouse = '" . mysqli_real_escape_string($conn, $from_warehouse) . "' AND bin_location = '" . mysqli_real_escape_string($conn, $from_bin) . "')";
     }
     if (!empty($product_code)) {
-        $srcWhere[] = "((product_code = '" . mysqli_real_escape_string($conn, $product_code) . "' OR sku = '" . mysqli_real_escape_string($conn, $product_code) . "') AND bin_location = '" . mysqli_real_escape_string($conn, $from_bin) . "')";
+        $srcWhere[] = "(product_code = '" . mysqli_real_escape_string($conn, $product_code) . "' AND warehouse = '" . mysqli_real_escape_string($conn, $from_warehouse) . "' AND bin_location = '" . mysqli_real_escape_string($conn, $from_bin) . "')";
     }
 
     $srcQuery = "SELECT * FROM inventory WHERE " . implode(" OR ", $srcWhere) . " LIMIT 1";
@@ -85,12 +86,26 @@ try {
     if ($sourceRes && mysqli_num_rows($sourceRes) > 0) {
         $src = mysqli_fetch_assoc($sourceRes);
         $newSrcQty = (int)$src['available_qty'] + $qty;
-        
-        $srcStatus = ($newSrcQty <= 0) ? "Out of Stock" : (($newSrcQty <= 10) ? "Low Stock" : "In Stock");
+        $srcStatus = ($newSrcQty <= 10) ? "Low Stock" : "In Stock";
 
         $updSrc = "UPDATE inventory SET available_qty = '$newSrcQty', status = '$srcStatus' WHERE id = '" . $src['id'] . "'";
         if (!mysqli_query($conn, $updSrc)) {
             throw new Exception("Failed to restore source inventory balance: " . mysqli_error($conn));
+        }
+    } else {
+        // Agar pehle origin bin zero hone par purge ho gaya tha, toh slot restore karein
+        $pInfoRes = mysqli_query($conn, "SELECT id, product_code, product_name FROM products WHERE id = '$product_id' OR product_code = '" . mysqli_real_escape_string($conn, $product_code) . "' LIMIT 1");
+        $pInfo = ($pInfoRes && mysqli_num_rows($pInfoRes) > 0) ? mysqli_fetch_assoc($pInfoRes) : [];
+        $pCode = mysqli_real_escape_string($conn, $pInfo['product_code'] ?? $product_code);
+        $pName = mysqli_real_escape_string($conn, $pInfo['product_name'] ?? $product_name);
+
+        $srcStatus = ($qty <= 10) ? "Low Stock" : "In Stock";
+        $insSrc = "
+            INSERT INTO inventory (product_id, product_code, product_name, warehouse, bin_location, batch_no, available_qty, reserved_qty, status)
+            VALUES ('$product_id', '$pCode', '$pName', '" . mysqli_real_escape_string($conn, $from_warehouse) . "', '" . mysqli_real_escape_string($conn, $from_bin) . "', 'BAT-" . date('Ymd') . "', '$qty', 0, '$srcStatus')
+        ";
+        if (!mysqli_query($conn, $insSrc)) {
+            throw new Exception("Failed to recreate source inventory slot: " . mysqli_error($conn));
         }
     }
 
@@ -99,10 +114,10 @@ try {
     // -------------------------------------------------------------
     $destWhere = [];
     if ($product_id > 0) {
-        $destWhere[] = "(product_id = '$product_id' AND (warehouse = '" . mysqli_real_escape_string($conn, $to_warehouse) . "' OR warehouse_id = '" . intval($row['to_warehouse_id'] ?? 0) . "') AND bin_location = '" . mysqli_real_escape_string($conn, $to_bin) . "')";
+        $destWhere[] = "(product_id = '$product_id' AND warehouse = '" . mysqli_real_escape_string($conn, $to_warehouse) . "' AND bin_location = '" . mysqli_real_escape_string($conn, $to_bin) . "')";
     }
     if (!empty($product_code)) {
-        $destWhere[] = "((product_code = '" . mysqli_real_escape_string($conn, $product_code) . "' OR sku = '" . mysqli_real_escape_string($conn, $product_code) . "') AND bin_location = '" . mysqli_real_escape_string($conn, $to_bin) . "')";
+        $destWhere[] = "(product_code = '" . mysqli_real_escape_string($conn, $product_code) . "' AND warehouse = '" . mysqli_real_escape_string($conn, $to_warehouse) . "' AND bin_location = '" . mysqli_real_escape_string($conn, $to_bin) . "')";
     }
 
     if (!empty($destWhere)) {
@@ -111,14 +126,16 @@ try {
 
         if ($destRes && mysqli_num_rows($destRes) > 0) {
             $dest = mysqli_fetch_assoc($destRes);
-            $newDestQty = max(0, (int)$dest['available_qty'] - $qty);
-            
-            $destStatus = ($newDestQty <= 0) ? "Out of Stock" : (($newDestQty <= 10) ? "Low Stock" : "In Stock");
+            $newDestQty = (int)$dest['available_qty'] - $qty;
 
-            // Agar destination row empty ho jaye to update karein (ya 0 quantity maintain karein)
-            $updDest = "UPDATE inventory SET available_qty = '$newDestQty', status = '$destStatus' WHERE id = '" . $dest['id'] . "'";
-            if (!mysqli_query($conn, $updDest)) {
-                throw new Exception("Failed to deduct destination inventory balance: " . mysqli_error($conn));
+            if ($newDestQty <= 0) {
+                mysqli_query($conn, "DELETE FROM inventory WHERE id = '" . $dest['id'] . "'");
+            } else {
+                $destStatus = ($newDestQty <= 10) ? "Low Stock" : "In Stock";
+                $updDest = "UPDATE inventory SET available_qty = '$newDestQty', status = '$destStatus' WHERE id = '" . $dest['id'] . "'";
+                if (!mysqli_query($conn, $updDest)) {
+                    throw new Exception("Failed to deduct destination inventory balance: " . mysqli_error($conn));
+                }
             }
         }
     }

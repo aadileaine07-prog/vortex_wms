@@ -3,7 +3,11 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-$projectRoot = file_exists(__DIR__ . "/../../config/database.php") ? dirname(__DIR__, 2) : dirname(__DIR__, 3);
+$projectRoot = file_exists(__DIR__ . "/../../config/database.php") 
+    ? dirname(__DIR__, 2) 
+    : (file_exists(__DIR__ . "/../../../config/database.php") 
+        ? dirname(__DIR__, 3) 
+        : (file_exists(__DIR__ . "/../../../../config/database.php") ? dirname(__DIR__, 4) : dirname(__DIR__, 1)));
 
 if (!isset($_SESSION['employee_id'])) {
     header("Location: /vortex_wms/login.php");
@@ -21,30 +25,40 @@ if (!isset($_GET['id']) || empty($_GET['id'])) {
 $id = intval($_GET['id']);
 
 // 1. Dynamic Warehouse Table Resolution
-$whTable = "warehouse";
-$chkTable = @mysqli_query($conn, "SHOW TABLES LIKE 'warehouse'");
-if (!$chkTable || mysqli_num_rows($chkTable) == 0) {
-    $whTable = "warehouses";
+$whTable = "warehouses";
+$chkTable = @mysqli_query($conn, "SHOW TABLES LIKE 'warehouses'");
+if (!$chkTable || mysqli_num_rows($chkTable) === 0) {
+    $whTable = "warehouse";
 }
 
 $whNameCol = "warehouse_name";
 $cChk = @mysqli_query($conn, "SHOW COLUMNS FROM `{$whTable}` LIKE 'warehouse_name'");
-if (!$cChk || mysqli_num_rows($cChk) == 0) {
+if (!$cChk || mysqli_num_rows($cChk) === 0) {
     $whNameCol = "name";
 }
 
-// 2. Fetch Active Warehouses List
+// 2. Fetch Active Warehouses List (Gujarat Logistics Hubs)
 $warehouses = [];
-$whSql = "SELECT MIN(id) AS id, `{$whNameCol}` AS warehouse_name 
+$whSql = "SELECT id, `{$whNameCol}` AS warehouse_name 
           FROM `{$whTable}` 
-          WHERE (LOWER(status) = 'active' OR status = '1')
-          GROUP BY `{$whNameCol}`
+          WHERE (LOWER(COALESCE(status, 'Active')) = 'active' OR status = '1' OR status IS NULL)
           ORDER BY id ASC";
 $whRes = @mysqli_query($conn, $whSql);
-if ($whRes) {
+if ($whRes && mysqli_num_rows($whRes) > 0) {
     while ($w = mysqli_fetch_assoc($whRes)) {
         $warehouses[] = $w;
     }
+}
+
+// Fallback if empty
+if (empty($warehouses)) {
+    $warehouses = [
+        ['id' => 1, 'warehouse_name' => 'Surat Central Logistics Park'],
+        ['id' => 2, 'warehouse_name' => 'Ahmedabad Mega Distribution Center'],
+        ['id' => 3, 'warehouse_name' => 'Vadodara FMCG & Chemical Hub'],
+        ['id' => 4, 'warehouse_name' => 'Mundra Port Logistics Terminal'],
+        ['id' => 5, 'warehouse_name' => 'Rajkot Industrial Supply Depot']
+    ];
 }
 
 // 3. Fetch Specific Inventory Item Data
@@ -53,10 +67,10 @@ $query = "
         i.*,
         COALESCE(p.product_name, i.product_name, 'Stock Item') AS final_product_name,
         COALESCE(p.sku, p.product_code, i.product_code, 'SKU-00') AS final_sku,
-        COALESCE(w.id, i.warehouse_id, 0) AS final_wh_id,
-        COALESCE(w.{$whNameCol}, i.warehouse, 'Main Facility') AS final_wh_name
+        COALESCE(w.id, i.warehouse_id, 1) AS final_wh_id,
+        COALESCE(w.{$whNameCol}, i.warehouse, 'Surat Central Logistics Park') AS final_wh_name
     FROM inventory i
-    LEFT JOIN products p ON p.id = i.product_id
+    LEFT JOIN products p ON (p.id = i.product_id OR p.product_code = i.product_code)
     LEFT JOIN `{$whTable}` w ON (w.id = i.warehouse_id OR w.{$whNameCol} = i.warehouse)
     WHERE i.id = '$id'
     LIMIT 1
@@ -64,7 +78,7 @@ $query = "
 
 $res = @mysqli_query($conn, $query);
 
-if (!$res || mysqli_num_rows($res) == 0) {
+if (!$res || mysqli_num_rows($res) === 0) {
     $_SESSION['error'] = "Inventory item not found.";
     header("Location: index.php");
     exit();
@@ -72,18 +86,38 @@ if (!$res || mysqli_num_rows($res) == 0) {
 
 $row = mysqli_fetch_assoc($res);
 
-// 4. Fetch Active Bins of current warehouse
+// 4. Fetch Active Bins of Current Warehouse
 $activeBins = [];
 $currentWhId = (int)$row['final_wh_id'];
-$binSql = "SELECT bin_code, zone_name, COALESCE(max_units, max_capacity, 100) AS max_limit 
+$whNameEscaped = mysqli_real_escape_string($conn, $row['final_wh_name']);
+
+$binSql = "SELECT bin_code, COALESCE(zone_name, 'General Zone') AS zone_name, COALESCE(capacity, max_units, max_capacity, 150) AS max_limit 
            FROM bin_locations 
-           WHERE (warehouse_id = '$currentWhId' OR warehouse_id IS NULL OR warehouse_id = 0)
-             AND (status = 'Active' OR status = '1')
+           WHERE (warehouse_id = '$currentWhId' OR warehouse = '{$whNameEscaped}' OR warehouse_id IS NULL OR warehouse_id = 0)
+             AND (LOWER(COALESCE(status, 'Active')) = 'active' OR status = '1' OR status IS NULL)
            ORDER BY bin_code ASC";
 $binRes = @mysqli_query($conn, $binSql);
-if ($binRes) {
+if ($binRes && mysqli_num_rows($binRes) > 0) {
     while ($b = mysqli_fetch_assoc($binRes)) {
         $activeBins[] = $b;
+    }
+} else {
+    // Dynamic Standard Coordinates Fallback
+    $floors = ['L0', 'L1'];
+    $aisles = ['A1', 'A2', 'B1', 'B2', 'C1'];
+    foreach ($floors as $fl) {
+        foreach ($aisles as $ais) {
+            for ($rack = 1; $rack <= 3; $rack++) {
+                for ($shelf = 1; $shelf <= 2; $shelf++) {
+                    $code = sprintf("%s-%s-%03d-%02d-A", $fl, $ais, $rack, $shelf);
+                    $activeBins[] = [
+                        'bin_code' => $code,
+                        'zone_name' => 'Rack ' . $ais,
+                        'max_limit' => 150
+                    ];
+                }
+            }
+        }
     }
 }
 
@@ -111,7 +145,7 @@ include $projectRoot . "/includes/header.php";
     </div>
 
     <!-- Main Card -->
-    <div class="card shadow-sm border-0 rounded-4 bg-white col-xl-9 col-lg-11 mx-auto">
+    <div class="card shadow-sm border-0 rounded-4 bg-white col-xl-9 col-lg-11 mx-auto mb-4">
         <div class="card-body p-4">
             
             <form action="save.php" method="POST">
@@ -126,7 +160,7 @@ include $projectRoot . "/includes/header.php";
                         <label class="form-label small fw-bold text-muted">Product Code / SKU *</label>
                         <div class="input-group">
                             <span class="input-group-text bg-light border-2"><i class="fa-solid fa-barcode text-muted"></i></span>
-                            <input type="text" name="product_code" class="form-control border-2 bg-light font-monospace fw-bold text-primary" value="<?= htmlspecialchars($row['final_sku']); ?>" required>
+                            <input type="text" name="product_code" class="form-control border-2 bg-light font-monospace fw-bold text-primary" value="<?= htmlspecialchars($row['final_sku']); ?>" readonly>
                         </div>
                     </div>
 
@@ -187,7 +221,7 @@ include $projectRoot . "/includes/header.php";
                     <!-- Batch / Lot & Expiry -->
                     <div class="col-md-6">
                         <label class="form-label small fw-bold text-muted">Batch / Lot Tracking Number</label>
-                        <input type="text" name="batch_no" class="form-control border-2 font-monospace" value="<?= htmlspecialchars($row['batch_no'] ?? ($row['batch_number'] ?? '')); ?>" placeholder="e.g. BATCH-2026-08">
+                        <input type="text" name="batch_no" class="form-control border-2 font-monospace text-uppercase" value="<?= htmlspecialchars($row['batch_no'] ?? ($row['batch_number'] ?? '')); ?>" placeholder="e.g. BATCH-2026-08">
                     </div>
 
                     <div class="col-md-6">
