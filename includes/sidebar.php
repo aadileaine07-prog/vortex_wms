@@ -6,41 +6,35 @@ $current_page = $_SERVER['REQUEST_URI'] ?? '';
 ?>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
 <style>
-.sidebar .nested-list {
-    list-style: none !important;
-    padding: 0 0 0 10px !important;
-    margin: 4px 0 !important;
+/* =========================================
+   SIDEBAR SUBMENU DROPDOWN FIX
+========================================= */
+.sidebar .submenu {
     display: none;
-    background: rgba(0, 0, 0, 0.25);
+    list-style: none;
+    padding: 0 0 0 15px;
+    margin: 4px 0;
+    background: rgba(0, 0, 0, 0.2);
     border-radius: 6px;
 }
-.sidebar .nested-item.open > .nested-list {
+
+.sidebar .has-submenu.open > .submenu {
     display: block !important;
 }
-.sidebar .nested-btn {
-    display: flex !important;
-    align-items: center !important;
-    justify-content: space-between !important;
-    padding: 8px 12px !important;
-    font-size: 13px !important;
-    color: #cbd5e1 !important;
-    cursor: pointer !important;
-    border-radius: 6px;
-    transition: all 0.2s ease;
+
+.sidebar .submenu-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
 }
-.sidebar .nested-btn:hover {
-    background: rgba(255, 255, 255, 0.05);
-    color: #fff !important;
-}
-.sidebar .nested-item.open > .nested-btn {
-    color: #60a5fa !important;
-}
-.sidebar .nested-item.open > .nested-btn .n-arrow {
-    transform: rotate(90deg);
-}
-.sidebar .n-arrow {
+
+.sidebar .submenu-toggle .arrow-icon {
     font-size: 10px;
     transition: transform 0.25s ease;
+}
+
+.sidebar .has-submenu.open > .submenu-toggle .arrow-icon {
+    transform: rotate(90deg);
 }
 </style>
 
@@ -225,8 +219,8 @@ $current_page = $_SERVER['REQUEST_URI'] ?? '';
             </ul>
         </li>
 
-        <!-- 9. TOOLS -->
-        <li class="has-submenu <?= (strpos($current_page, '/tools/') !== false || strpos($current_page, 'check_tables.php') !== false) ? 'open' : ''; ?>">
+        <!-- 9. TOOLS & UTILITIES (CONSOLIDATED & DROPDOWN) -->
+        <li class="has-submenu <?= (strpos($current_page, '/tools/') !== false || strpos($current_page, 'check_tables.php') !== false || strpos($current_page, 'file_editor.php') !== false || strpos($current_page, 'sidebar_customizer.php') !== false || strpos($current_page, 'notifications') !== false || strpos($current_page, 'system_health.php') !== false) ? 'open' : ''; ?>">
             <a href="javascript:void(0);" class="submenu-toggle">
                 <i class="fa-solid fa-screwdriver-wrench"></i>
                 <span>Tools & Utilities</span>
@@ -236,8 +230,13 @@ $current_page = $_SERVER['REQUEST_URI'] ?? '';
                 <li><a href="/vortex_wms/modules/tools/barcode_generator.php" class="<?= (strpos($current_page, 'barcode_generator') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-barcode me-2 text-primary"></i>Barcode / QR</a></li>
                 <li><a href="/vortex_wms/modules/tools/scanner.php" class="<?= (strpos($current_page, 'scanner.php') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-mobile-screen-button me-2 text-danger"></i>Mobile Scanner</a></li>
                 <li><a href="/vortex_wms/modules/tools/universal_import.php" class="<?= (strpos($current_page, 'universal_import') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-file-import me-2 text-info"></i>Universal Import</a></li>
-                <!-- NEW: Database Table Inspector -->
                 <li><a href="/vortex_wms/modules/check_tables.php" class="<?= (strpos($current_page, 'check_tables.php') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-table-columns me-2 text-warning"></i>Database Studio</a></li>
+                
+                <!-- Added Custom Modules inside Tools Dropdown -->
+                <li><a href="/vortex_wms/system_health.php" class="<?= (basename($_SERVER['PHP_SELF']) == 'system_health.php') ? 'active' : ''; ?>"><i class="fa-solid fa-stethoscope me-2 text-success"></i>System Health & Diagnostics</a></li>
+                <li><a href="/vortex_wms/file_editor.php" class="<?= (strpos($current_page, 'file_editor.php') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-code me-2 text-warning"></i>Global Code Editor</a></li>
+                <li><a href="/vortex_wms/sidebar_customizer.php" class="<?= (strpos($current_page, 'sidebar_customizer.php') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-bars-staggered me-2 text-info"></i>Sidebar Customizer</a></li>
+                <li><a href="/vortex_wms/modules/notifications/index.php" class="<?= (strpos($current_page, 'notifications') !== false) ? 'active' : ''; ?>"><i class="fa-solid fa-bell me-2 text-primary"></i>Notifications Center</a></li>
             </ul>
         </li>
 
@@ -258,7 +257,7 @@ $current_page = $_SERVER['REQUEST_URI'] ?? '';
                 <span>Logout</span>
             </a>
         </li>
-    </ul>
+    </ul>  
 </div>
 
 <script>
@@ -309,5 +308,5 @@ $current_page = $_SERVER['REQUEST_URI'] ?? '';
     } else {
         setupSidebarToggles();
     }
-})();
+})();   
 </script>

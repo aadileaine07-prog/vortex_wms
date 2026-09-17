@@ -16,32 +16,17 @@ require_once $projectRoot . "/config/database.php";
 
 $preselected_id = intval($_GET['inventory_id'] ?? 0);
 
-// Dynamic Warehouse Table Check
-$whTable = "warehouses";
-$chkTable = @mysqli_query($conn, "SHOW TABLES LIKE 'warehouses'");
-if (!$chkTable || mysqli_num_rows($chkTable) === 0) {
-    $whTable = "warehouse";
-}
-
-$nameCol = "warehouse_name";
-$cChk = @mysqli_query($conn, "SHOW COLUMNS FROM `{$whTable}` LIKE 'warehouse_name'");
-if (!$cChk || mysqli_num_rows($cChk) === 0) {
-    $nameCol = "name";
-}
-
-// Fetch Inventory Products with Detailed Join
+// Simple, direct and foolproof query to fetch inventory stock records
 $query = "
     SELECT 
-        i.id,
-        COALESCE(p.product_name, i.product_name, 'Stock Item') AS product_name,
-        COALESCE(p.sku, p.product_code, i.product_code, 'SKU-00') AS sku_code,
-        COALESCE(w.{$nameCol}, i.warehouse, 'Surat Central Logistics Park') AS warehouse_name,
-        COALESCE(i.bin_location, 'DOCK-INWARD') AS bin_code,
-        COALESCE(i.available_qty, 0) AS available_qty
-    FROM inventory i
-    LEFT JOIN products p ON (p.id = i.product_id OR p.product_code = i.product_code)
-    LEFT JOIN `{$whTable}` w ON (w.id = i.warehouse_id OR w.{$nameCol} = i.warehouse)
-    ORDER BY product_name ASC
+        id,
+        COALESCE(product_name, 'Stock Item') AS product_name,
+        COALESCE(product_code, 'SKU-00') AS sku_code,
+        COALESCE(warehouse, 'Surat Central Logistics Park') AS warehouse_name,
+        COALESCE(bin_location, 'DOCK-INWARD') AS bin_code,
+        COALESCE(available_qty, quantity, 0) AS available_qty
+    FROM inventory
+    ORDER BY id DESC
 ";
 $products = @mysqli_query($conn, $query);
 
@@ -74,7 +59,7 @@ include $projectRoot . "/includes/header.php";
 
     <div class="card shadow-sm border-0 rounded-4 bg-white col-xl-9 col-lg-11 mx-auto">
         <div class="card-body p-4">
-            
+                
             <form action="save.php" method="POST" id="adjustmentForm">
                 <input type="hidden" name="action" value="create">
 
@@ -93,7 +78,7 @@ include $projectRoot . "/includes/header.php";
                                         data-bin="<?= htmlspecialchars($row['bin_code']); ?>" 
                                         data-qty="<?= (int)$row['available_qty']; ?>"
                                         <?= ($row['id'] == $preselected_id) ? 'selected' : ''; ?>>
-                                        <?= htmlspecialchars($row['product_name']); ?> (<?= htmlspecialchars($row['sku_code']); ?>) | Bin: <?= htmlspecialchars($row['bin_code']); ?> [Available: <?= $row['available_qty']; ?>]
+                                        <?= htmlspecialchars($row['product_name']); ?> (<?= htmlspecialchars($row['sku_code']); ?>) | Bin: <?= htmlspecialchars($row['bin_code']); ?> [Available: <?= $row['available_qty']; ?> Units]
                                     </option>
                                 <?php endwhile; ?>
                             <?php endif; ?>

@@ -40,7 +40,7 @@ if (isset($conn)) {
         <button type="button" class="menu-toggle" onclick="toggleSidebarMenu()" aria-label="Toggle Sidebar">
             <i class="fa-solid fa-bars"></i>
         </button>
-        <span class="navbar-title fw-bold text-dark fs-5">
+        <span class="navbar-title fw-bold text-white fs-5">
             Warehouse Management System
         </span>
     </div>
@@ -80,14 +80,14 @@ if (isset($conn)) {
         <!-- PROFILE DROPDOWN -->
         <div class="navbar-profile position-relative">
             <button type="button" class="btn d-flex align-items-center gap-2 p-1 border-0" onclick="toggleProfileMenu(event)">
-                <div class="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center fw-bold" style="width:36px; height:36px;">
+                <div class="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center fw-bold shadow-sm" style="width:36px; height:36px;">
                     <?= strtoupper(substr($fullName, 0, 1)); ?>
                 </div>
                 <div class="text-start d-none d-md-block">
-                    <strong class="d-block text-dark small leading-tight"><?= htmlspecialchars($fullName); ?></strong>
-                    <small class="text-muted" style="font-size:11px;"><?= htmlspecialchars($role); ?></small>
+                    <strong class="d-block text-white small leading-tight"><?= htmlspecialchars($fullName); ?></strong>
+                    <small class="text-white-50" style="font-size:11px;"><?= htmlspecialchars($role); ?></small>
                 </div>
-                <i class="fa-solid fa-chevron-down text-muted small ms-1"></i>
+                <i class="fa-solid fa-chevron-down text-white-50 small ms-1"></i>
             </button>
 
             <div class="profile-dropdown shadow rounded-4 border p-2" id="profileDropdown" style="display:none; position:absolute; right:0; top:48px; width:200px; background:#fff; z-index:1060;">

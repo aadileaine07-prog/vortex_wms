@@ -14,6 +14,10 @@ if (!isset($_SESSION['employee_id'])) {
 
 require_once $projectRoot . "/config/database.php";
 
+if (!isset($conn) || !($conn instanceof mysqli)) {
+    die('Database connection is unavailable.');
+}
+
 /* ==========================================================================
    1. DYNAMIC WAREHOUSE SCHEMA & DATA RESOLUTION
    ========================================================================== */
@@ -40,6 +44,21 @@ $whLocCol = "address";
 $cChkLoc = @mysqli_query($conn, "SHOW COLUMNS FROM `{$whTable}` LIKE 'address'");
 if (!$cChkLoc || mysqli_num_rows($cChkLoc) === 0) {
     $whLocCol = "location";
+}
+
+// Handle CSV Export Request
+if (isset($_GET['export']) && $_GET['export'] === 'csv') {
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename=warehouses_export_' . date('Y-m-d') . '.csv');
+    $output = fopen('php://output', 'w');
+    fputcsv($output, ['ID', 'Facility Code', 'Warehouse Name', 'Physical Location', 'Status']);
+    
+    $exportRes = mysqli_query($conn, "SELECT id, {$whCodeCol} AS wh_code, {$whNameCol} AS wh_name, COALESCE({$whLocCol}, '') AS wh_location, COALESCE(status, 'Active') AS status FROM `{$whTable}` ORDER BY id ASC");
+    while ($row = mysqli_fetch_assoc($exportRes)) {
+        fputcsv($output, [$row['id'], $row['wh_code'], $row['wh_name'], $row['wh_location'], $row['status']]);
+    }
+    fclose($output);
+    exit();
 }
 
 // Fetch Real Database Rows Only
@@ -75,7 +94,10 @@ include $projectRoot . "/includes/header.php";
             </h2>
             <p class="text-muted mb-0">Manage enterprise storage hubs, rack zone distribution & capacity limits</p>
         </div>
-        <div class="d-flex gap-2">
+        <div class="d-flex gap-2 flex-wrap">
+            <a href="?export=csv" class="btn btn-outline-success fw-bold rounded-pill px-3 shadow-sm">
+                <i class="fa-solid fa-file-excel me-1"></i> Export CSV
+            </a>
             <a href="/vortex_wms/modules/masters/bin_locations/index.php" class="btn btn-outline-info fw-bold rounded-pill px-3 shadow-sm">
                 <i class="fa-solid fa-location-dot me-1"></i> Bin Coordinates
             </a>
@@ -125,7 +147,7 @@ include $projectRoot . "/includes/header.php";
                             <th>Physical Location</th>
                             <th class="text-center">Total Configured Bins</th>
                             <th class="text-center">Status</th>
-                            <th width="140" class="text-center">Actions</th>
+                            <th width="160" class="text-center">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -170,6 +192,7 @@ include $projectRoot . "/includes/header.php";
                                     </td>
                                     <td class="text-center">
                                         <div class="d-inline-flex gap-1">
+                                            <a href="view.php?id=<?= $row['id']; ?>" class="btn btn-outline-info btn-sm rounded-circle" title="View Facility Details"><i class="fa-solid fa-eye"></i></a>
                                             <a href="edit.php?id=<?= $row['id']; ?>" class="btn btn-outline-warning btn-sm rounded-circle text-dark" title="Edit Facility"><i class="fa-solid fa-pen-to-square"></i></a>
                                             <a href="delete.php?id=<?= $row['id']; ?>" class="btn btn-outline-danger btn-sm rounded-circle" title="Delete Facility" onclick="return confirm('⚠️ Are you sure you want to remove this warehouse facility?');"><i class="fa-solid fa-trash"></i></a>
                                         </div>
@@ -209,6 +232,7 @@ document.getElementById("searchInput").addEventListener("keyup", function() {
     let rows = document.querySelectorAll("#warehouseTable tbody tr");
 
     rows.forEach(function(row) {
+        if (row.querySelector("td[colspan]")) return;
         row.style.display = row.innerText.toLowerCase().includes(value) ? "" : "none";
     });
 });

@@ -1,111 +1,131 @@
 <?php
-session_start();
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
+$projectRoot = file_exists(__DIR__ . "/../../../config/database.php") 
+    ? dirname(__DIR__, 3) 
+    : (file_exists(__DIR__ . "/../../config/database.php") 
+        ? dirname(__DIR__, 2) 
+        : (file_exists(__DIR__ . "/../../../../config/database.php") ? dirname(__DIR__, 4) : dirname(__DIR__, 1)));
 
 if (!isset($_SESSION['employee_id'])) {
-    header("Location: ../../../login.php");
+    header("Location: /vortex_wms/login.php");
     exit();
 }
 
-require_once "../../../config/database.php";
+require_once $projectRoot . "/config/database.php";
 
-if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    header("Location: add.php");
-    exit();
-}
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $full_name     = mysqli_real_escape_string($conn, $_POST['full_name']);
+    $mobile        = mysqli_real_escape_string($conn, $_POST['mobile']);
+    $email         = mysqli_real_escape_string($conn, $_POST['email']);
+    $gender        = mysqli_real_escape_string($conn, $_POST['gender']);
+    $dob           = mysqli_real_escape_string($conn, $_POST['dob']);
+    $department    = mysqli_real_escape_string($conn, $_POST['department']);
+    $designation   = mysqli_real_escape_string($conn, $_POST['designation']);
+    $role          = mysqli_real_escape_string($conn, $_POST['role']);
+    $warehouse     = mysqli_real_escape_string($conn, $_POST['warehouse']);
+    $shift         = mysqli_real_escape_string($conn, $_POST['shift']);
+    $joining_date  = mysqli_real_escape_string($conn, $_POST['joining_date']);
+    $username      = mysqli_real_escape_string($conn, $_POST['username']);
+    $password      = password_hash($_POST['password'], PASSWORD_DEFAULT); // Secure password hashing
+    $status        = mysqli_real_escape_string($conn, $_POST['status']);
+    $address       = mysqli_real_escape_string($conn, $_POST['address']);
+    $remarks       = mysqli_real_escape_string($conn, $_POST['remarks']);
 
-/* Collect Data */
-$full_name    = trim($_POST['full_name'] ?? '');
-$mobile       = trim($_POST['mobile'] ?? '');
-$email        = trim($_POST['email'] ?? '');
-$gender       = $_POST['gender'] ?? 'Male';
-$dob          = !empty($_POST['dob']) ? $_POST['dob'] : NULL;
-$department   = $_POST['department'] ?? 'Warehouse';
-$designation  = trim($_POST['designation'] ?? '');
-$role         = $_POST['role'] ?? 'Picker';
-$warehouse    = trim($_POST['warehouse'] ?? 'Main Warehouse');
-$shift        = $_POST['shift'] ?? 'General';
-$username     = trim($_POST['username'] ?? '');
-$password     = $_POST['password'] ?? '';
-$joining_date = !empty($_POST['joining_date']) ? $_POST['joining_date'] : NULL;
-$status       = $_POST['status'] ?? 'Active';
-$address      = trim($_POST['address'] ?? '');
-$remarks      = trim($_POST['remarks'] ?? '');
-
-/* Validate Unique Fields */
-$checkStmt = $conn->prepare("SELECT id FROM employees WHERE username = ? OR (email != '' AND email = ?) OR (mobile != '' AND mobile = ?)");
-$checkStmt->bind_param("sss", $username, $email, $mobile);
-$checkStmt->execute();
-if ($checkStmt->get_result()->num_rows > 0) {
-    $_SESSION['error'] = "Username, Email or Mobile number is already registered.";
-    $checkStmt->close();
-    header("Location: add.php");
-    exit();
-}
-$checkStmt->close();
-
-/* Generate ID */
-$managementRoles = [
-    'Super Admin', 'Admin', 'HR Manager', 'HR Executive', 
-    'Area Manager', 'Warehouse Manager', 'Inventory Manager', 
-    'Operations Manager', 'QC Manager', 'IT Administrator'
-];
-
-if (in_array($role, $managementRoles)) {
-    $q = mysqli_query($conn, "SELECT employee_id FROM employees WHERE employee_id LIKE 'Z%' ORDER BY id DESC LIMIT 1");
-    if ($q && mysqli_num_rows($q) > 0) {
-        $row = mysqli_fetch_assoc($q);
-        $num = (int)substr($row['employee_id'], 1);
-        $employee_id = "Z" . str_pad($num + 1, 3, "0", STR_PAD_LEFT);
+    /* ==========================================================================
+       SMART SERVER-SIDE ID GENERATION (Z series vs VRTX series)
+       ========================================================================== */
+    $isManagement = ($role === 'Super Admin' || $role === 'Admin' || $role === 'Management' || strpos($role, 'Manager') !== false);
+    
+    if ($isManagement) {
+        // Management ke liye 'Z' series
+        $q = mysqli_query($conn, "SELECT emp_id FROM employees WHERE emp_id LIKE 'Z%' ORDER BY id DESC LIMIT 1");
+        if ($q && mysqli_num_rows($q) > 0) {
+            $lastId = mysqli_fetch_assoc($q)['emp_id'];
+            $num = intval(substr($lastId, 1)) + 1;
+            $employee_id = 'Z' . str_pad($num, 3, '0', STR_PAD_LEFT);
+        } else {
+            $employee_id = 'Z001';
+        }
     } else {
-        $employee_id = "Z001";
+        // Staff / Shop Floor ke liye 'VRTX' series
+        $q = mysqli_query($conn, "SELECT emp_id FROM employees WHERE emp_id LIKE 'VRTX%' ORDER BY id DESC LIMIT 1");
+        if ($q && mysqli_num_rows($q) > 0) {
+            $lastId = mysqli_fetch_assoc($q)['emp_id'];
+            $num = intval(substr($lastId, 4)) + 1;
+            $employee_id = 'VRTX' . str_pad($num, 4, '0', STR_PAD_LEFT);
+        } else {
+            $employee_id = 'VRTX0001';
+        }
+    }
+
+    // Safety Loop: Ensure generated ID is 100% unique in database
+    $existsCheck = true;
+    while ($existsCheck) {
+        $chkDuplicate = mysqli_query($conn, "SELECT id FROM employees WHERE employee_id = '$employee_id' LIMIT 1");
+        if ($chkDuplicate && mysqli_num_rows($chkDuplicate) > 0) {
+            // Agar galti se match ho jaye toh increment karke next try karein
+            if ($isManagement) {
+                $num = intval(substr($employee_id, 1)) + 1;
+                $employee_id = 'Z' . str_pad($num, 3, '0', STR_PAD_LEFT);
+            } else {
+                $num = intval(substr($employee_id, 4)) + 1;
+                $employee_id = 'VRTX' . str_pad($num, 4, '0', STR_PAD_LEFT);
+            }
+        } else {
+            $existsCheck = false;
+        }
+    }
+
+    // Check if username already exists
+    $chkUser = mysqli_query($conn, "SELECT id FROM employees WHERE username = '$username' LIMIT 1");
+    if ($chkUser && mysqli_num_rows($chkUser) > 0) {
+        $_SESSION['error'] = "Username '{$username}' is already taken. Please choose another.";
+        header("Location: add.php");
+        exit();
+    }
+
+    // Handle Profile Photo Upload
+    $photoName = "";
+    if (isset($_FILES['photo']) && $_FILES['photo']['error'] === UPLOAD_ERR_OK) {
+        $fileTmpPath = $_FILES['photo']['tmp_name'];
+        $fileName = $_FILES['photo']['name'];
+        $fileExtension = strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
+        
+        $allowedExtensions = ['jpg', 'jpeg', 'png', 'webp'];
+        if (in_array($fileExtension, $allowedExtensions)) {
+            $newFileName = 'EMP_' . time() . '.' . $fileExtension;
+            $uploadFileDir = $projectRoot . "/assets/images/employees/";
+            
+            if (!is_dir($uploadFileDir)) {
+                mkdir($uploadFileDir, 0755, true);
+            }
+            
+            $dest_path = $uploadFileDir . $newFileName;
+            if (move_uploaded_file($fileTmpPath, $dest_path)) {
+                $photoName = $newFileName;
+            }
+        }
+    }
+
+    $insertQuery = "
+        INSERT INTO employees (employee_id, full_name, mobile, email, gender, dob, department, designation, role, warehouse, shift, joining_date, username, password, status, address, remarks, photo)
+        VALUES ('$employee_id', '$full_name', '$mobile', '$email', '$gender', '$dob', '$department', '$designation', '$role', '$warehouse', '$shift', '$joining_date', '$username', '$password', '$status', '$address', '$remarks', '$photoName')
+    ";
+
+    if (mysqli_query($conn, $insertQuery)) {
+        $_SESSION['success'] = "Employee <strong>{$full_name}</strong> registered successfully with ID <strong>{$employee_id}</strong>.";
+        header("Location: index.php");
+        exit();
+    } else {
+        $_SESSION['error'] = "Failed to register employee: " . mysqli_error($conn);
+        header("Location: add.php");
+        exit();
     }
 } else {
-    $q = mysqli_query($conn, "SELECT employee_id FROM employees WHERE employee_id LIKE 'VTX%' ORDER BY id DESC LIMIT 1");
-    if ($q && mysqli_num_rows($q) > 0) {
-        $row = mysqli_fetch_assoc($q);
-        $num = (int)substr($row['employee_id'], 3);
-        $employee_id = "VTX" . ($num + 1);
-    } else {
-        $employee_id = "VTX1001";
-    }
-}
-
-/* Photo Upload */
-$photo = "default.png";
-if (isset($_FILES['photo']) && $_FILES['photo']['error'] === 0) {
-    $ext = strtolower(pathinfo($_FILES['photo']['name'], PATHINFO_EXTENSION));
-    $allowed = ['jpg', 'jpeg', 'png', 'webp'];
-    if (in_array($ext, $allowed)) {
-        $photo = time() . "_" . rand(1000, 9999) . "." . $ext;
-        move_uploaded_file($_FILES['photo']['tmp_name'], "../../../assets/images/employees/" . $photo);
-    }
-}
-
-/* Hash Password */
-$hashed_password = password_hash($password, PASSWORD_DEFAULT);
-
-/* Save Employee */
-$stmt = $conn->prepare("
-    INSERT INTO employees 
-    (employee_id, photo, full_name, mobile, email, gender, dob, department, designation, role, shift, warehouse, username, password, joining_date, status, address, remarks) 
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-");
-
-$stmt->bind_param(
-    "ssssssssssssssssss", 
-    $employee_id, $photo, $full_name, $mobile, $email, $gender, 
-    $dob, $department, $designation, $role, $shift, $warehouse, 
-    $username, $hashed_password, $joining_date, $status, $address, $remarks
-);
-
-if ($stmt->execute()) {
-    $_SESSION['success'] = "Employee created successfully. Generated ID: " . $employee_id;
-    $stmt->close();
-    header("Location: index.php");
-    exit();
-} else {
-    $_SESSION['error'] = "Failed to create employee: " . $stmt->error;
-    $stmt->close();
     header("Location: add.php");
     exit();
 }
+?>

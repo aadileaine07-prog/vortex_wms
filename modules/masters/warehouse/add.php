@@ -78,7 +78,7 @@ include $projectRoot . "/includes/header.php";
     </div>
 
     <?php if (isset($_SESSION['error'])): ?>
-        <div class="alert alert-danger alert-dismissible fade show rounded-4 border-0 mb-4">
+        <div class="alert alert-danger alert-dismissible fade show rounded-4 border-0 mb-4 shadow-sm">
             <i class="fa-solid fa-triangle-exclamation me-2"></i><?= $_SESSION['error']; unset($_SESSION['error']); ?>
             <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
         </div>
@@ -124,3 +124,4 @@ include $projectRoot . "/includes/header.php";
 </div>
 
 <?php include $projectRoot . "/includes/footer.php"; ?>
+```[cite: 1]

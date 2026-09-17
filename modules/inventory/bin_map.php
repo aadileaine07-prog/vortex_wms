@@ -14,9 +14,25 @@ if (!isset($_SESSION['employee_id'])) {
 
 require_once $projectRoot . "/config/database.php";
 
-// 1. Fetch live stock from inventory
+// 0. Fetch Active Warehouses for Filter
+$warehousesList = [];
+$whTbl = "warehouse";
+$chkWhTbl = @mysqli_query($conn, "SHOW TABLES LIKE 'warehouse'");
+if (!$chkWhTbl || mysqli_num_rows($chkWhTbl) == 0) {
+    $whTbl = "warehouses";
+}
+$whRes = @mysqli_query($conn, "SELECT id, warehouse_name FROM {$whTbl} WHERE status = 'Active' OR status = '1'");
+if ($whRes) {
+    while ($w = mysqli_fetch_assoc($whRes)) {
+        $warehousesList[] = $w;
+    }
+}
+
+$selected_wh = $_GET['warehouse_id'] ?? 'ALL';
+
+// 1. Fetch live stock from inventory safely
 $inventoryMap = [];
-$invRes = mysqli_query($conn, "
+$invRes = @mysqli_query($conn, "
     SELECT 
         bin_location,
         warehouse,
@@ -30,36 +46,43 @@ $invRes = mysqli_query($conn, "
 if ($invRes) {
     while ($r = mysqli_fetch_assoc($invRes)) {
         $bin = strtoupper(trim($r['bin_location']));
-        if (!isset($inventoryMap[$bin])) {
-            $inventoryMap[$bin] = [
-                'total_qty' => 0,
-                'items' => []
-            ];
+        if (!empty($bin)) {
+            if (!isset($inventoryMap[$bin])) {
+                $inventoryMap[$bin] = [
+                    'total_qty' => 0,
+                    'items' => []
+                ];
+            }
+            $inventoryMap[$bin]['total_qty'] += (int)$r['available_qty'];
+            $inventoryMap[$bin]['items'][] = $r;
         }
-        $inventoryMap[$bin]['total_qty'] += (int)$r['available_qty'];
-        $inventoryMap[$bin]['items'][] = $r;
     }
 }
 
-// 2. Fetch ONLY REAL BINS from `bin_locations` table (Zero Dummy Fallback)
+// 2. Fetch Bins dynamically from `bin_locations` with Warehouse filtering
 $masterBins = [];
-$binDbRes = @mysqli_query($conn, "
-    SELECT 
-        bin_code, 
-        COALESCE(zone_name, zone, 'General Zone') AS zone_name, 
-        COALESCE(capacity, max_capacity, 150) AS max_capacity 
-    FROM bin_locations 
-    WHERE status = 'Active' OR status IS NULL OR status = '1'
-    ORDER BY bin_code ASC
-");
+$sqlBins = "SELECT b.*, w.warehouse_name FROM bin_locations b LEFT JOIN {$whTbl} w ON w.id = b.warehouse_id";
+if ($selected_wh !== 'ALL') {
+    $sqlBins .= " WHERE b.warehouse_id = '" . intval($selected_wh) . "'";
+}
+$binDbRes = @mysqli_query($conn, $sqlBins);
 
 if ($binDbRes && mysqli_num_rows($binDbRes) > 0) {
     while ($b = mysqli_fetch_assoc($binDbRes)) {
-        $masterBins[] = [
-            'bin_code'     => strtoupper(trim($b['bin_code'])),
-            'zone_name'    => $b['zone_name'],
-            'max_capacity' => (int)$b['max_capacity']
-        ];
+        $code = $b['bin_code'] ?? $b['code'] ?? $b['bin_location'] ?? '';
+        $zone = $b['zone_name'] ?? $b['zone'] ?? $b['zone_code'] ?? 'General Zone';
+        $cap  = $b['max_capacity'] ?? $b['capacity'] ?? 150;
+        $status = $b['status'] ?? 'Active';
+        $whName = $b['warehouse_name'] ?? 'General Facility';
+
+        if (!empty($code) && ($status === 'Active' || $status === '1' || $status === null)) {
+            $masterBins[] = [
+                'bin_code'     => strtoupper(trim($code)),
+                'zone_name'    => trim($zone),
+                'max_capacity' => (int)$cap,
+                'warehouse'    => $whName
+            ];
+        }
     }
 }
 
@@ -130,8 +153,19 @@ include $projectRoot . "/includes/header.php";
         </div>
         
         <div class="d-flex align-items-center gap-2 flex-wrap">
-            <input type="text" id="binSearchInput" class="form-control rounded-pill" placeholder="Search Bin..." style="width: 200px;" onkeyup="filterBins()">
-            <select id="zoneFilter" class="form-select border-2 rounded-pill fw-semibold" style="width: 160px;" onchange="filterBins()">
+            <!-- Warehouse Filter Dropdown -->
+            <select id="warehouseFilter" class="form-select border-2 rounded-pill fw-semibold" style="width: 210px;" onchange="filterByWarehouse(this.value)">
+                <option value="ALL">🏢 All Warehouses</option>
+                <?php foreach ($warehousesList as $wh): ?>
+                    <option value="<?= $wh['id']; ?>" <?= ($selected_wh == $wh['id']) ? 'selected' : ''; ?>>
+                        <?= htmlspecialchars($wh['warehouse_name']); ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+
+            <input type="text" id="binSearchInput" class="form-control rounded-pill" placeholder="Search Bin..." style="width: 170px;" onkeyup="filterBins()">
+            
+            <select id="zoneFilter" class="form-select border-2 rounded-pill fw-semibold" style="width: 140px;" onchange="filterBins()">
                 <option value="ALL">All Zones</option>
                 <?php
                 $zones = array_unique(array_column($masterBins, 'zone_name'));
@@ -140,9 +174,6 @@ include $projectRoot . "/includes/header.php";
                 }
                 ?>
             </select>
-            <a href="/vortex_wms/modules/masters/bin_locations/bulk_add.php" class="btn btn-primary fw-bold shadow-sm rounded-pill px-3">
-                <i class="fa-solid fa-plus me-1"></i> Add Bins
-            </a>
         </div>
     </div>
 
@@ -178,7 +209,7 @@ include $projectRoot . "/includes/header.php";
     <?php if (!empty($masterBins)): ?>
         <div class="bin-grid">
             <?php foreach ($masterBins as $bin): 
-                $pct = min(100, round(($bin['current_qty'] / $bin['max_capacity']) * 100));
+                $pct = min(100, round(($bin['current_qty'] / max(1, $bin['max_capacity'])) * 100));
                 $jsonItems = htmlspecialchars(json_encode($bin['items']), ENT_QUOTES, 'UTF-8');
             ?>
                 <div class="bin-card <?= $bin['status_class']; ?> bin-item" 
@@ -210,7 +241,7 @@ include $projectRoot . "/includes/header.php";
         <div class="card border-0 shadow-sm rounded-4 bg-white p-5 text-center">
             <i class="fa-solid fa-boxes-packing fa-3x text-secondary opacity-25 mb-3 d-block"></i>
             <h4 class="fw-bold text-dark">No Bin Locations Configured</h4>
-            <p class="text-muted small mb-4">Database me koi bin locations exist nahi karti hain. Naye rack coordinates create karein.</p>
+            <p class="text-muted small mb-4">Is warehouse ya database me koi bin locations exist nahi karti hain.</p>
             <div>
                 <a href="/vortex_wms/modules/masters/bin_locations/bulk_add.php" class="btn btn-primary rounded-pill px-4 fw-bold">
                     <i class="fa-solid fa-plus me-1"></i> Add Bins Now
@@ -247,6 +278,14 @@ include $projectRoot . "/includes/header.php";
 </div>
 
 <script>
+function filterByWarehouse(whId) {
+    if (whId === 'ALL') {
+        window.location.href = 'bin_map.php';
+    } else {
+        window.location.href = 'bin_map.php?warehouse_id=' + whId;
+    }
+}
+
 function filterBins() {
     const zone = document.getElementById('zoneFilter').value;
     const search = document.getElementById('binSearchInput').value.toUpperCase().trim();

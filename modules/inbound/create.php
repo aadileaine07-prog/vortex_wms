@@ -5,7 +5,7 @@ if (session_status() === PHP_SESSION_NONE) {
 
 $projectRoot = file_exists(__DIR__ . "/../../config/database.php") 
     ? dirname(__DIR__, 2) 
-    : (file_exists(__DIR__ . "/../../../config/database.php") ? dirname(__DIR__, 3) : dirname(__DIR__, 1));
+    : (file_exists(__DIR__ . "/../../../config/database.php") ? dirname(__DIR__, 3) : dirname(__DIR__, 4));
 
 if (!isset($_SESSION['employee_id'])) {
     header("Location: /vortex_wms/login.php");
@@ -27,7 +27,6 @@ if ($poQuery && mysqli_num_rows($poQuery) > 0) {
     while ($poRow = mysqli_fetch_assoc($poQuery)) {
         $pId = (int)$poRow['id'];
         
-        // Supplier details fallback
         $supName = $poRow['supplier_name'] ?? '';
         if (empty($supName) && !empty($poRow['supplier_id'])) {
             $sRes = @mysqli_query($conn, "SELECT supplier_name FROM suppliers WHERE id = '{$poRow['supplier_id']}' LIMIT 1");
@@ -37,7 +36,6 @@ if ($poQuery && mysqli_num_rows($poQuery) > 0) {
         }
         if (empty($supName)) $supName = 'DailyNeeds Wholesale';
 
-        // Item details fallback
         $prodName = $poRow['product_name'] ?? '';
         $prodCode = $poRow['product_code'] ?? '';
         $prodId   = (int)($poRow['product_id'] ?? 0);
@@ -66,16 +64,21 @@ if ($poQuery && mysqli_num_rows($poQuery) > 0) {
 // Master Products List
 $prodRes = mysqli_query($conn, "SELECT id, product_code, product_name, uom FROM products ORDER BY id ASC");
 
-// Master Warehouses List
+// Master Warehouses List (Strict Active Filter)
 $whTable = "warehouses";
 $chkTable = @mysqli_query($conn, "SHOW TABLES LIKE 'warehouses'");
 if (!$chkTable || mysqli_num_rows($chkTable) === 0) {
     $whTable = "warehouse";
 }
-$whRes = mysqli_query($conn, "SELECT id, COALESCE(warehouse_code, CONCAT('WH-0', id)) AS wh_code, COALESCE(warehouse_name, name, 'Main Warehouse') AS wh_name, COALESCE(city, 'Surat') as city FROM `{$whTable}` WHERE status = 'Active' OR status = '1' ORDER BY id ASC");
+$whRes = mysqli_query($conn, "
+    SELECT id, COALESCE(warehouse_code, CONCAT('WH-0', id)) AS wh_code, COALESCE(warehouse_name, name, 'Main Warehouse') AS wh_name, COALESCE(city, 'Surat') as city 
+    FROM `{$whTable}` 
+    WHERE status = 'Active' OR status = '1' 
+    ORDER BY id ASC
+");
 
 /* ==========================================================================
-   2. HANDLE GRN SUBMISSION
+   2. HANDLE GRN SUBMISSION & AUTO TABLE CREATION FALLBACK
    ========================================================================== */
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_grn'])) {
@@ -89,7 +92,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_grn'])) {
     $expiry_date   = !empty($_POST['expiry_date']) ? $_POST['expiry_date'] : NULL;
     $received_date = !empty($_POST['received_date']) ? $_POST['received_date'] : date('Y-m-d');
 
-    // Fetch Warehouse Name
+    // Ensure inbound_shipments table exists to prevent missing table crash
+    @mysqli_query($conn, "
+        CREATE TABLE IF NOT EXISTS inbound_shipments (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            grn_no VARCHAR(50) NOT NULL,
+            po_number VARCHAR(50) DEFAULT NULL,
+            supplier_name VARCHAR(150) DEFAULT NULL,
+            product_id INT DEFAULT 0,
+            product_code VARCHAR(50) DEFAULT NULL,
+            product_name VARCHAR(200) DEFAULT NULL,
+            received_qty INT DEFAULT 0,
+            warehouse_id INT DEFAULT 1,
+            warehouse VARCHAR(150) DEFAULT NULL,
+            bin_location VARCHAR(50) DEFAULT 'DOCK-INWARD',
+            batch_no VARCHAR(50) DEFAULT NULL,
+            expiry_date DATE DEFAULT NULL,
+            qc_status VARCHAR(50) DEFAULT 'Pending',
+            putaway_status VARCHAR(50) DEFAULT 'Pending',
+            received_date DATE DEFAULT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ");
+
     $whName = 'Surat Central Logistics Park';
     $whQuery = mysqli_query($conn, "SELECT COALESCE(warehouse_name, name) as wh_name FROM `{$whTable}` WHERE id = '$warehouse_id' LIMIT 1");
     if ($whQuery && $wRow = mysqli_fetch_assoc($whQuery)) {
@@ -97,7 +122,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_grn'])) {
     }
     $whNameEscaped = mysqli_real_escape_string($conn, $whName);
 
-    // Fetch Product Info
     $pQuery = mysqli_query($conn, "SELECT product_code, product_name FROM products WHERE id = '$product_id' LIMIT 1");
     if ($pQuery && mysqli_num_rows($pQuery) > 0) {
         $pData = mysqli_fetch_assoc($pQuery);
@@ -119,7 +143,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_grn'])) {
 
     if (mysqli_query($conn, $insertSql)) {
         if (!empty($po_number)) {
-            mysqli_query($conn, "UPDATE purchase_orders SET status = 'Received' WHERE po_number = '$po_number'");
+            @mysqli_query($conn, "UPDATE purchase_orders SET status = 'Received' WHERE po_number = '$po_number'");
         }
         $_SESSION['success'] = "GRN <strong>{$grn_no}</strong> created successfully! Ready for QC.";
         header("Location: index.php");
@@ -164,7 +188,6 @@ include $projectRoot . "/includes/header.php";
         <div class="card-body p-4">
             <form method="POST" id="inwardForm">
                 
-                <!-- Quick PO Selector Bar -->
                 <div class="p-3 bg-light rounded-4 border mb-4">
                     <label class="form-label small fw-bold text-primary text-uppercase mb-1">
                         <i class="fa-solid fa-bolt me-1"></i> Select Purchase Order (Auto-Fill Form)

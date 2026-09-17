@@ -3,245 +3,124 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-// 1. Admin Session Check
-if (isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin') {
-    return;
+$projectRoot = file_exists(__DIR__ . "/../../../config/database.php") 
+    ? dirname(__DIR__, 3) 
+    : (file_exists(__DIR__ . "/../../../../config/database.php") ? dirname(__DIR__, 4) : dirname(__DIR__, 2));
+
+if (!isset($_SESSION['employee_id'])) {
+    header("Location: /vortex_wms/login.php");
+    exit();
 }
 
-// 2. SEO Safety Headers
-header('HTTP/1.1 503 Service Temporarily Unavailable');
-header('Status: 503 Service Temporarily Unavailable');
-header('Retry-After: 86400');
+require_once $projectRoot . "/config/database.php";
+
+if (!isset($_GET['id']) || empty($_GET['id'])) {
+    $_SESSION['error'] = "Attendance ID is missing.";
+    header("Location: index.php");
+    exit();
+}
+
+$id = intval($_GET['id']);
+
+$query = mysqli_query($conn, "
+    SELECT a.*, e.full_name, e.employee_id AS emp_code, e.department, e.designation, e.email, e.phone, e.photo
+    FROM attendance a
+    JOIN employees e ON e.id = a.employee_id
+    WHERE a.id = '$id'
+    LIMIT 1
+");
+
+if (!$query || mysqli_num_rows($query) === 0) {
+    $_SESSION['error'] = "Attendance record not found.";
+    header("Location: index.php");
+    exit();
+}
+
+$att = mysqli_fetch_assoc($query);
+
+include $projectRoot . "/includes/header.php";
 ?>
-<!DOCTYPE html>
-<html lang="hi">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Coming Soon</title>
-    
-    <!-- Google Fonts (Pacifico, Poppins, Righteous) & FontAwesome Icons -->
-    <link href="https://fonts.googleapis.com/css2?family=Pacifico&family=Poppins:wght@300;500;700&family=Righteous&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
-    <style>
-        body {
-            margin: 0;
-            padding: 0;
-            min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            background: linear-gradient(-45deg, #7206e6, #4648e7, #8e44ad, #3498db);
-            background-size: 400% 400%;
-            animation: gradientBG 12s ease infinite;
-            color: white;
-            font-family: 'Poppins', sans-serif;
-            text-align: center;
-        }
-
-        @keyframes gradientBG {
-            0% { background-position: 0% 50%; }
-            50% { background-position: 100% 50%; }
-            100% { background-position: 0% 50%; }
-        }
-
-        .container {
-            max-width: 550px;
-            width: 90%;
-            padding: 40px 25px;
-            background: rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            border-radius: 20px;
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
-        }
-
-        /* H1 Cursive Title */
-        h1 {
-            font-family: 'Pacifico', cursive;
-            font-size: 4rem;
-            margin: 0 0 5px 0;
-            font-weight: normal;
-            letter-spacing: 1px;
-            text-shadow: 2px 4px 10px rgba(0, 0, 0, 0.2);
-        }
-
-        /* Modern Righteous Font + Gradient H2 */
-h2 {
-    font-family: 'Righteous', cursive;
-    font-size: 1.35rem;
-    text-transform: uppercase;
-    letter-spacing: 2px;
-    margin: 0 0 15px 0;
-    background: linear-gradient(90deg, #ffeaa7, #ff7675, #74b9ff);
-    background-clip: text; /* Standard property for compatibility */
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    display: inline-block;
-    filter: drop-shadow(0px 2px 8px rgba(0,0,0,0.3));
-}
-        p {
-            font-size: 0.95rem;
-            opacity: 0.85;
-            line-height: 1.5;
-            margin-bottom: 20px;
-        }
-
-        .countdown {
-            display: flex;
-            justify-content: center;
-            gap: 12px;
-            margin: 25px 0;
-        }
-
-        .countdown-item {
-            background: rgba(255, 255, 255, 0.15);
-            border: 1px solid rgba(255, 255, 255, 0.25);
-            border-radius: 12px;
-            padding: 12px 10px;
-            min-width: 65px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-        }
-
-        .countdown-item span {
-            display: block;
-            font-size: 1.8rem;
-            font-weight: 600;
-            line-height: 1;
-        }
-
-        .countdown-item p {
-            margin: 5px 0 0 0;
-            font-size: 0.7rem;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            opacity: 0.8;
-        }
-
-        .subscribe-form {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 25px;
-        }
-
-        .subscribe-form input {
-            flex: 1;
-            padding: 12px 18px;
-            border: none;
-            border-radius: 30px;
-            outline: none;
-            font-size: 0.95rem;
-        }
-
-        .subscribe-form button {
-            padding: 12px 25px;
-            border: none;
-            border-radius: 30px;
-            background: #ff4757;
-            color: white;
-            font-weight: 600;
-            cursor: pointer;
-            transition: 0.3s ease;
-        }
-
-        .subscribe-form button:hover {
-            background: #ff6b81;
-            transform: translateY(-2px);
-        }
-
-        .social-links a {
-            color: white;
-            font-size: 1.3rem;
-            margin: 0 10px;
-            transition: 0.3s ease;
-            display: inline-block;
-        }
-
-        .social-links a:hover {
-            color: #ff4757;
-            transform: scale(1.2);
-        }
-
-        @media (max-width: 480px) {
-            h1 { font-size: 3rem; }
-            h2 { font-size: 1.1rem; letter-spacing: 1px; }
-            .countdown { gap: 8px; }
-            .countdown-item { min-width: 50px; padding: 10px 6px; }
-            .countdown-item span { font-size: 1.3rem; }
-        }
-    </style>
-</head>
-<body>
-
-    <div class="container">
-        <h1>Coming Soon</h1>
-        <h2>Something Amazing is Crafting</h2>
-        <p>Hum is page par kuch naya aur behtareen bana rahe hain. Launch hone me bacha samay:</p>
-        
-        <div class="countdown">
-            <div class="countdown-item">
-                <span id="days">00</span>
-                <p>Days</p>
-            </div>
-            <div class="countdown-item">
-                <span id="hours">00</span>
-                <p>Hours</p>
-            </div>
-            <div class="countdown-item">
-                <span id="minutes">00</span>
-                <p>Minutes</p>
-            </div>
-            <div class="countdown-item">
-                <span id="seconds">00</span>
-                <p>Seconds</p>
-            </div>
+<div class="container-fluid p-0">
+    <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+        <div>
+            <h2 class="fw-bold text-dark mb-1"><i class="fa-solid fa-eye text-info me-2"></i>Attendance Details</h2>
+            <p class="text-muted mb-0">Detailed time log view for attendance ID #<?= $att['id']; ?></p>
         </div>
-
-        <form class="subscribe-form" action="#" method="POST">
-            <input type="email" placeholder="Apna email darj karein..." required>
-            <button type="submit">Notify Me</button>
-        </form>
-
-        <div class="social-links">
-            <a href="#"><i class="fab fa-facebook-f"></i></a>
-            <a href="#"><i class="fab fa-instagram"></i></a>
-            <a href="#"><i class="fab fa-twitter"></i></a>
-            <a href="#"><i class="fab fa-whatsapp"></i></a>
+        <div>
+            <a href="index.php" class="btn btn-outline-secondary fw-bold rounded-pill px-3 shadow-sm"><i class="fa-solid fa-arrow-left me-1"></i> Back to List</a>
         </div>
     </div>
 
-    <script>
-        const targetDate = new Date();
-        targetDate.setDate(targetDate.getDate() + 30); 
+    <div class="row g-4">
+        <!-- Employee Profile Quick Card -->
+        <div class="col-lg-4">
+            <div class="card shadow-sm border-0 rounded-4 bg-white text-center p-4 h-100">
+                <div class="card-body">
+                    <img src="../../../assets/images/employees/<?= empty($att['photo']) ? 'default-user.png' : htmlspecialchars($att['photo']); ?>" 
+                         width="100" height="100" class="rounded-circle shadow-sm mb-3" style="object-fit:cover; border: 3px solid #f8f9fa;" onerror="this.src='../../../assets/images/employees/default-user.png'">
+                    <h4 class="fw-bold text-dark mb-1"><?= htmlspecialchars($att['full_name']); ?></h4>
+                    <code class="text-primary fw-bold font-monospace"><?= htmlspecialchars($att['emp_code']); ?></code>
+                    <p class="text-muted small mt-2 mb-3"><?= htmlspecialchars($att['designation'] ?? 'Staff'); ?> &bull; <?= htmlspecialchars($att['department'] ?? 'General'); ?></p>
+                    
+                    <div class="text-start border-top pt-3 mt-3">
+                        <p class="mb-2 small text-muted"><i class="fa-solid fa-envelope me-2 text-secondary"></i> <?= htmlspecialchars($att['email'] ?? 'N/A'); ?></p>
+                        <p class="mb-0 small text-muted"><i class="fa-solid fa-phone me-2 text-secondary"></i> <?= htmlspecialchars($att['phone'] ?? 'N/A'); ?></p>
+                    </div>
+                </div>
+            </div>
+        </div>
 
-        function updateCountdown() {
-            const now = new Date().getTime();
-            const difference = targetDate - now;
+        <!-- Detailed Attendance Data Card -->
+        <div class="col-lg-8">
+            <div class="card shadow-sm border-0 rounded-4 bg-white h-100">
+                <div class="card-body p-4">
+                    <h5 class="fw-bold text-dark mb-4 border-bottom pb-2"><i class="fa-solid fa-clipboard-user me-2 text-primary"></i>Shift Summary</h5>
 
-            if (difference <= 0) {
-                document.querySelector('.countdown').innerHTML = "<h3 style='margin:0;'>We are Live!</h3>";
-                return;
-            }
+                    <div class="row g-3 mb-4">
+                        <div class="col-md-6">
+                            <label class="form-label small text-muted fw-bold text-uppercase">Attendance Date</label>
+                            <div class="fw-bold font-monospace fs-5 text-dark"><?= htmlspecialchars($att['attendance_date']); ?></div>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small text-muted fw-bold text-uppercase">Current Status</label>
+                            <div>
+                                <?php 
+                                    $st = strtolower($att['status']);
+                                    $badgeClass = ($st == 'present') ? 'bg-success' : (($st == 'absent') ? 'bg-danger' : 'bg-warning text-dark');
+                                ?>
+                                <span class="badge <?= $badgeClass; ?> px-3 py-2 fs-6 rounded-pill"><?= strtoupper($att['status']); ?></span>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small text-muted fw-bold text-uppercase">Check-In Time</label>
+                            <div class="fw-bold font-monospace fs-5 text-success">
+                                <i class="fa-solid fa-right-to-bracket me-1"></i> <?= $att['check_in'] ? date('h:i:s A', strtotime($att['check_in'])) : 'Not Logged'; ?>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small text-muted fw-bold text-uppercase">Check-Out Time</label>
+                            <div class="fw-bold font-monospace fs-5 text-danger">
+                                <i class="fa-solid fa-right-from-bracket me-1"></i> <?= $att['check_out'] ? date('h:i:s A', strtotime($att['check_out'])) : '<span class="text-warning small fw-semibold">Active Shift</span>'; ?>
+                            </div>
+                        </div>
+                    </div>
 
-            const days = Math.floor(difference / (1000 * 60 * 60 * 24));
-            const hours = Math.floor((difference % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-            const minutes = Math.floor((difference % (1000 * 60 * 60)) / (1000 * 60));
-            const seconds = Math.floor((difference % (1000 * 60)) / 1000);
+                    <div class="mb-4">
+                        <label class="form-label small text-muted fw-bold text-uppercase">Remarks / Notes</label>
+                        <div class="p-3 bg-light rounded-3 text-secondary border">
+                            <?= !empty($att['remarks']) ? nl2br(htmlspecialchars($att['remarks'])) : '<em class="text-muted">No remarks provided for this record.</em>'; ?>
+                        </div>
+                    </div>
 
-            document.getElementById('days').innerText = days < 10 ? '0' + days : days;
-            document.getElementById('hours').innerText = hours < 10 ? '0' + hours : hours;
-            document.getElementById('minutes').innerText = minutes < 10 ? '0' + minutes : minutes;
-            document.getElementById('seconds').innerText = seconds < 10 ? '0' + seconds : seconds;
-        }
+                    <div class="d-flex justify-content-end gap-2 border-top pt-3">
+                        <a href="edit.php?id=<?= $att['id']; ?>" class="btn btn-warning fw-bold px-4 rounded-pill text-dark"><i class="fa-solid fa-pen-to-square me-1"></i> Edit Record</a>
+                        <a href="delete.php?id=<?= $att['id']; ?>" class="btn btn-outline-danger fw-bold px-4 rounded-pill" onclick="return confirm('Are you sure you want to delete this record?');"><i class="fa-solid fa-trash me-1"></i> Delete</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
 
-        updateCountdown();
-        setInterval(updateCountdown, 1000);
-    </script>
-
-</body>
-</html>
-<?php 
-exit(); 
-?>
+<?php include $projectRoot . "/includes/footer.php"; ?>

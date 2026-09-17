@@ -14,60 +14,46 @@ if (!isset($_SESSION['employee_id'])) {
 
 require_once $projectRoot . "/config/database.php";
 
-// 1. Dynamic Table Detection for Stock Adjustments
-$adjTable = "stock_adjustments";
-$chkTable = @mysqli_query($conn, "SHOW TABLES LIKE 'stock_adjustments'");
-if (!$chkTable || mysqli_num_rows($chkTable) === 0) {
-    $chkTable2 = @mysqli_query($conn, "SHOW TABLES LIKE 'stock_adjustment'");
-    if ($chkTable2 && mysqli_num_rows($chkTable2) > 0) {
-        $adjTable = "stock_adjustment";
-    } else {
-        $adjTable = "inventory_adjustments";
+// Dynamically detect which adjustment table actually has records or exists
+$activeTable = "stock_adjustments";
+foreach (['stock_adjustments', 'inventory_adjustments', 'stock_adjustment', 'adjustments'] as $tbl) {
+    $chk = @mysqli_query($conn, "SELECT COUNT(*) FROM `$tbl`");
+    $cntRes = $chk ? @mysqli_fetch_array($chk) : null;
+    if ($chk && $cntRes && $cntRes[0] > 0) {
+        $activeTable = $tbl;
+        break;
+    }
+    // Temporary debug check to see all tables and row counts
+$debug_tables = ['stock_adjustments', 'inventory_adjustments', 'stock_adjustment', 'adjustments'];
+foreach ($debug_tables as $t) {
+    $res = @mysqli_query($conn, "SELECT COUNT(*) FROM `$t`");
+    if ($res) {
+        $row = mysqli_fetch_array($res);
+        echo "<!-- Table: $t has " . $row[0] . " rows -->";
+        if ($row[0] > 0) {
+            $activeTable = $t;
+            break;
+        }
     }
 }
-
-// 2. Dynamic Warehouse Table Resolution
-$whTable = "warehouses";
-$chkWh = @mysqli_query($conn, "SHOW TABLES LIKE 'warehouses'");
-if (!$chkWh || mysqli_num_rows($chkWh) === 0) {
-    $whTable = "warehouse";
 }
 
-$whNameCol = "warehouse_name";
-$cChk = @mysqli_query($conn, "SHOW COLUMNS FROM `{$whTable}` LIKE 'warehouse_name'");
-if (!$cChk || mysqli_num_rows($cChk) === 0) {
-    $whNameCol = "name";
-}
-
-// 3. Detect Available Columns in Adjustment Table
-$adjCols = [];
-$cRes = @mysqli_query($conn, "SHOW COLUMNS FROM `{$adjTable}`");
-if ($cRes) {
-    while ($c = mysqli_fetch_assoc($cRes)) { 
-        $adjCols[] = strtolower($c['Field']); 
-    }
-}
-
-$typeCol   = in_array('adjustment_type', $adjCols) ? 'adjustment_type' : (in_array('type', $adjCols) ? 'type' : "'Increase'");
-$dateCol   = in_array('adjustment_date', $adjCols) ? 'adjustment_date' : (in_array('created_at', $adjCols) ? 'created_at' : "NOW()");
-$reasonCol = in_array('reason', $adjCols) ? 'reason' : "''";
-
-// 4. Comprehensive Ledger Query with Fallbacks
+// Robust query with safe column fallbacks
 $query = "
     SELECT 
-        a.id,
-        a.{$typeCol} AS adjustment_type,
-        COALESCE(a.quantity, 0) AS quantity,
-        COALESCE(a.{$dateCol}, NOW()) AS adjustment_date,
-        COALESCE(a.{$reasonCol}, 'Inventory Audit') AS reason,
-        COALESCE(p.product_name, i.product_name, 'Catalog Product') AS final_product_name,
-        COALESCE(p.sku, p.product_code, i.product_code, 'SKU-00') AS final_sku,
-        COALESCE(w.{$whNameCol}, i.warehouse, 'Surat Central Logistics Park') AS final_warehouse,
-        COALESCE(i.bin_location, 'DOCK-INWARD') AS final_bin
-    FROM `{$adjTable}` a
+        a.*,
+        COALESCE(a.adjustment_type, a.type, 'Increase') AS resolved_type,
+        COALESCE(a.quantity, a.quantity_adjusted, 0) AS resolved_qty,
+        COALESCE(a.created_at, a.adjustment_date, NOW()) AS resolved_date,
+        COALESCE(a.reason, 'Manual Audit Correction') AS resolved_reason,
+        COALESCE(p.product_name, i.product_name, a.product_name, 'Catalog Stock Item') AS resolved_product,
+        COALESCE(p.sku, p.product_code, i.product_code, a.product_code, 'SKU-00') AS resolved_sku,
+        COALESCE(i.warehouse, w.warehouse_name, w.name, 'Surat Central Logistics Park') AS resolved_warehouse,
+        COALESCE(i.bin_location, 'DOCK-INWARD') AS resolved_bin
+    FROM `$activeTable` a
     LEFT JOIN inventory i ON (i.id = a.inventory_id)
-    LEFT JOIN products p ON (p.id = a.product_id OR p.id = i.product_id OR p.product_code = i.product_code)
-    LEFT JOIN `{$whTable}` w ON (w.id = i.warehouse_id OR w.{$whNameCol} = i.warehouse)
+    LEFT JOIN products p ON (p.id = i.product_id OR p.id = a.product_id)
+    LEFT JOIN warehouses w ON (w.id = i.warehouse_id)
     ORDER BY a.id DESC
 ";
 
@@ -86,14 +72,14 @@ include $projectRoot . "/includes/header.php";
             </h2>
             <p class="text-muted mb-0">Audit adjustments, manual reconciliations, and inventory write-offs</p>
         </div>
-        <div class="d-flex gap-2 align-items-center">
+        <div class="d-flex gap-2 align-items-center flex-wrap">
             <button onclick="exportAdjustmentCSV()" class="btn btn-outline-success fw-bold rounded-pill px-3 shadow-sm">
                 <i class="fa-solid fa-file-excel me-1"></i> Export CSV
             </button>
-            <a href="create.php" class="btn btn-warning fw-bold text-dark rounded-pill px-3 shadow-sm">
+            <a href="create.php" class="btn btn-warning fw-bold text-dark rounded-pill px-4 shadow-sm">
                 <i class="fa-solid fa-plus me-1"></i> New Adjustment
             </a>
-            <a href="../index.php" class="btn btn-secondary fw-bold rounded-pill px-3">
+            <a href="../index.php" class="btn btn-secondary fw-bold rounded-pill px-3 shadow-sm">
                 <i class="fa-solid fa-arrow-left me-1"></i> Back to Inventory
             </a>
         </div>
@@ -107,30 +93,23 @@ include $projectRoot . "/includes/header.php";
         </div>
     <?php endif; ?>
 
-    <?php if (isset($_SESSION['error'])): ?>
-        <div class="alert alert-danger alert-dismissible fade show rounded-4 border-0 shadow-sm mb-4" role="alert">
-            <i class="fa-solid fa-triangle-exclamation me-2"></i><?= $_SESSION['error']; unset($_SESSION['error']); ?>
-            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-        </div>
-    <?php endif; ?>
-
     <!-- Adjustment Ledger Table Card -->
     <div class="card shadow-sm border-0 rounded-4 bg-white mb-4">
         <div class="card-body p-4">
 
-            <!-- Search & Filters -->
+            <!-- Search & Filters Bar -->
             <div class="row g-3 mb-4">
                 <div class="col-md-6">
                     <div class="input-group">
-                        <span class="input-group-text bg-light border-end-0"><i class="fa-solid fa-magnifying-glass text-muted"></i></span>
-                        <input type="text" id="searchInput" class="form-control border-start-0" placeholder="Search SKU, Product Name, or Coordinate...">
+                        <span class="input-group-text bg-light border-end-0 rounded-start-pill ps-3"><i class="fa-solid fa-magnifying-glass text-muted"></i></span>
+                        <input type="text" id="searchInput" class="form-control border-start-0 bg-light rounded-end-pill py-2" placeholder="Search SKU, Product Name, or Coordinate...">
                     </div>
                 </div>
                 <div class="col-md-3">
-                    <select id="typeFilter" class="form-select border-2">
+                    <select id="typeFilter" class="form-select border-2 fw-semibold rounded-pill py-2">
                         <option value="">All Adjustment Types</option>
-                        <option value="Increase">➕ Increase (+)</option>
-                        <option value="Decrease">➖ Decrease (-)</option>
+                        <option value="Increase">➕ Increase Stock</option>
+                        <option value="Decrease">➖ Decrease Stock</option>
                     </select>
                 </div>
             </div>
@@ -138,58 +117,63 @@ include $projectRoot . "/includes/header.php";
             <!-- Table -->
             <div class="table-responsive">
                 <table class="table table-hover align-middle mb-0" id="adjustmentTable">
-                    <thead class="table-light">
+                    <thead class="table-light text-uppercase fs-7">
                         <tr>
-                            <th width="70">ID</th>
-                            <th>Product / SKU</th>
-                            <th>Warehouse</th>
+                            <th class="ps-4" width="70">ID</th>
+                            <th>Product / SKU Details</th>
+                            <th>Warehouse Hub</th>
                             <th>Bin Coordinate</th>
                             <th class="text-center">Action Type</th>
                             <th class="text-center">Adjusted Qty</th>
-                            <th>Date</th>
-                            <th>Reason / Note</th>
-                            <th width="120" class="text-center">Actions</th>
+                            <th>Logged Date</th>
+                            <th>Reason / Notes</th>
+                            <th width="120" class="text-end pe-4">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php if ($result && mysqli_num_rows($result) > 0): ?>
                             <?php while ($row = mysqli_fetch_assoc($result)): ?>
                                 <?php 
-                                $isIncrease = (strcasecmp($row['adjustment_type'], 'Increase') === 0);
+                                $typeVal = $row['resolved_type'];
+                                $isIncrease = (stripos($typeVal, 'Increase') !== false || stripos($typeVal, 'Addition') !== false || stripos($typeVal, 'In') !== false);
                                 $typeBadge = $isIncrease 
                                     ? '<span class="badge bg-success-subtle text-success border border-success-subtle px-3 py-1 rounded-pill"><i class="fa-solid fa-arrow-up me-1"></i>Increase</span>'
                                     : '<span class="badge bg-danger-subtle text-danger border border-danger-subtle px-3 py-1 rounded-pill"><i class="fa-solid fa-arrow-down me-1"></i>Decrease</span>';
                                 ?>
                                 <tr>
-                                    <td><strong>#<?= $row['id']; ?></strong></td>
+                                    <td class="ps-4 fw-bold text-muted">#<?= $row['id']; ?></td>
                                     <td>
-                                        <div class="fw-bold text-dark"><?= htmlspecialchars($row['final_product_name']); ?></div>
-                                        <code class="text-primary font-monospace small"><?= htmlspecialchars($row['final_sku']); ?></code>
+                                        <div class="fw-bold text-dark"><?= htmlspecialchars($row['resolved_product']); ?></div>
+                                        <code class="text-primary font-monospace small"><?= htmlspecialchars($row['resolved_sku']); ?></code>
                                     </td>
                                     <td>
-                                        <span class="badge bg-light text-dark border px-2 py-1">
-                                            <i class="fa-solid fa-warehouse text-secondary me-1"></i><?= htmlspecialchars($row['final_warehouse']); ?>
+                                        <span class="badge bg-light text-secondary border px-2 py-1">
+                                            <i class="fa-solid fa-warehouse me-1"></i><?= htmlspecialchars($row['resolved_warehouse']); ?>
                                         </span>
                                     </td>
                                     <td>
-                                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle font-monospace fs-6 px-2 py-1">
-                                            <?= htmlspecialchars($row['final_bin']); ?>
+                                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle font-monospace px-2 py-1">
+                                            [📍 <?= htmlspecialchars($row['resolved_bin']); ?>]
                                         </span>
                                     </td>
                                     <td class="text-center type-cell" data-type="<?= $isIncrease ? 'Increase' : 'Decrease'; ?>">
                                         <?= $typeBadge; ?>
                                     </td>
                                     <td class="text-center">
-                                        <span class="badge <?= $isIncrease ? 'bg-success' : 'bg-danger'; ?> fs-6 px-3 py-1 rounded-pill font-monospace">
-                                            <?= $isIncrease ? '+' : '-'; ?><?= (int)$row['quantity']; ?>
+                                        <span class="badge <?= $isIncrease ? 'bg-success-subtle text-success border border-success-subtle' : 'bg-danger-subtle text-danger border border-danger-subtle'; ?> fs-6 px-3 py-1 rounded-pill font-monospace">
+                                            <?= $isIncrease ? '+' : '-'; ?><?= (int)$row['resolved_qty']; ?> Units
                                         </span>
                                     </td>
-                                    <td><small class="text-muted"><?= date("d M Y", strtotime($row['adjustment_date'])); ?></small></td>
-                                    <td><small class="text-dark fw-semibold text-truncate d-inline-block" style="max-width: 180px;" title="<?= htmlspecialchars($row['reason']); ?>"><?= htmlspecialchars($row['reason'] ?: 'Manual Recount'); ?></small></td>
-                                    <td class="text-center">
+                                    <td><small class="text-muted"><?= date("d M Y, h:i A", strtotime($row['resolved_date'])); ?></small></td>
+                                    <td>
+                                        <span class="text-dark fw-semibold text-truncate d-inline-block small" style="max-width: 180px;" title="<?= htmlspecialchars($row['resolved_reason']); ?>">
+                                            <?= htmlspecialchars($row['resolved_reason']); ?>
+                                        </span>
+                                    </td>
+                                    <td class="text-end pe-4">
                                         <div class="d-inline-flex gap-1">
-                                            <a href="view.php?id=<?= $row['id']; ?>" class="btn btn-outline-info btn-sm rounded-circle" title="View Spec Sheet"><i class="fa-solid fa-eye"></i></a>
-                                            <a href="delete.php?id=<?= $row['id']; ?>" class="btn btn-outline-danger btn-sm rounded-circle" onclick="return confirm('Revert stock changes and delete this adjustment log?');" title="Revert & Delete"><i class="fa-solid fa-trash"></i></a>
+                                            <a href="view.php?id=<?= $row['id']; ?>" class="btn btn-outline-info btn-sm rounded-circle shadow-sm" title="View Spec Sheet"><i class="fa-solid fa-eye"></i></a>
+                                            <a href="delete.php?id=<?= $row['id']; ?>" class="btn btn-outline-danger btn-sm rounded-circle shadow-sm" onclick="return confirm('Revert stock changes and delete this adjustment log?');" title="Revert & Delete"><i class="fa-solid fa-trash"></i></a>
                                         </div>
                                     </td>
                                 </tr>
@@ -198,7 +182,7 @@ include $projectRoot . "/includes/header.php";
                             <tr>
                                 <td colspan="9" class="text-center py-5 text-muted">
                                     <i class="fa-solid fa-sliders fs-2 d-block mb-2 text-secondary opacity-50"></i>
-                                    No stock adjustments found. Click <strong>New Adjustment</strong> to log inventory changes.
+                                    No stock adjustments recorded yet. Click <strong>New Adjustment</strong> to log inventory changes.
                                 </td>
                             </tr>
                         <?php endif; ?>
@@ -211,8 +195,8 @@ include $projectRoot . "/includes/header.php";
 
 </div>
 
+<!-- Real-time Filter & Export JavaScript -->
 <script>
-// Filter Adjustments by Search and Action Type
 document.addEventListener("DOMContentLoaded", function() {
     const searchInput = document.getElementById("searchInput");
     const typeFilter  = document.getElementById("typeFilter");
@@ -223,6 +207,7 @@ document.addEventListener("DOMContentLoaded", function() {
         const rows      = document.querySelectorAll("#adjustmentTable tbody tr");
 
         rows.forEach(row => {
+            if (row.cells.length < 9) return; // Skip empty state row
             const text       = row.innerText.toLowerCase();
             const typeCell   = row.querySelector(".type-cell");
             const typeText   = typeCell ? (typeCell.getAttribute("data-type") || "").toLowerCase() : "";
@@ -238,14 +223,13 @@ document.addEventListener("DOMContentLoaded", function() {
     if (typeFilter)  typeFilter.addEventListener("change", applyFilter);
 });
 
-// CSV Exporter
 function exportAdjustmentCSV() {
     let csv = ["ID,Product,SKU,Warehouse,Bin,Type,Quantity,Date,Reason"];
     const rows = document.querySelectorAll("#adjustmentTable tbody tr");
     
     rows.forEach(r => {
         const cols = r.querySelectorAll("td");
-        if (cols.length >= 8) {
+        if (cols.length >= 9) {
             const rowData = [
                 `"${cols[0].innerText.trim()}"`,
                 `"${cols[1].querySelector('.fw-bold') ? cols[1].querySelector('.fw-bold').innerText.trim() : ''}"`,

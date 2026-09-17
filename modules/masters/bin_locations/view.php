@@ -20,17 +20,31 @@ if (!isset($_GET['id']) || !filter_var($_GET['id'], FILTER_VALIDATE_INT)) {
 
 $id = intval($_GET['id']);
 
-$whTable = "warehouses";
-$whChk = @mysqli_query($conn, "SHOW TABLES LIKE 'warehouses'");
-if (!$whChk || mysqli_num_rows($whChk) == 0) {
-    $whTable = "warehouse";
+// 1. Dynamic Table & Column Identification for Warehouse
+$whTable = "warehouse";
+$chk = @mysqli_query($conn, "SHOW TABLES LIKE 'warehouse'");
+if (!$chk || mysqli_num_rows($chk) == 0) {
+    $whTable = "warehouses";
 }
 
+$nameCol = "warehouse_name";
+$cChk = @mysqli_query($conn, "SHOW COLUMNS FROM `{$whTable}` LIKE 'warehouse_name'");
+if (!$cChk || mysqli_num_rows($cChk) == 0) {
+    $nameCol = "name";
+}
+
+$codeCol = "warehouse_code";
+$cdChk = @mysqli_query($conn, "SHOW COLUMNS FROM `{$whTable}` LIKE 'warehouse_code'");
+if (!$cdChk || mysqli_num_rows($cdChk) == 0) {
+    $codeCol = "code";
+}
+
+// 2. Fetch Bin Details with Safe Join
 $binQuery = mysqli_query($conn, "
     SELECT 
         b.*,
-        COALESCE(w.warehouse_name, 'Unassigned') AS warehouse_name,
-        COALESCE(w.warehouse_code, 'WH') AS warehouse_code
+        COALESCE(w.{$nameCol}, 'General Facility') AS warehouse_name,
+        COALESCE(w.{$codeCol}, 'WH') AS warehouse_code
     FROM bin_locations b
     LEFT JOIN {$whTable} w ON w.id = b.warehouse_id
     WHERE b.id = '$id'
@@ -45,11 +59,9 @@ if (!$binQuery || mysqli_num_rows($binQuery) == 0) {
 $bin = mysqli_fetch_assoc($binQuery);
 
 include $projectRoot . "/includes/header.php";
-include $projectRoot . "/includes/navbar.php";
-include $projectRoot . "/includes/sidebar.php";
 ?>
 
-<div class="content">
+<div class="container-fluid p-0">
     <div class="container-fluid p-4">
 
         <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
@@ -66,7 +78,7 @@ include $projectRoot . "/includes/sidebar.php";
                 <table class="table table-bordered align-middle mb-0">
                     <tr>
                         <th width="220" class="bg-light text-muted small text-uppercase">Target Warehouse</th>
-                        <td><strong><?= htmlspecialchars($bin['warehouse_name'] ?? 'N/A'); ?></strong> (<?= htmlspecialchars($bin['warehouse_code'] ?? 'WH'); ?>)</td>
+                        <td><strong><?= htmlspecialchars($bin['warehouse_name'] ?? 'N/A'); ?></strong> (<small class="text-muted font-monospace"><?= htmlspecialchars($bin['warehouse_code'] ?? 'WH'); ?></small>)</td>
                     </tr>
                     <tr>
                         <th class="bg-light text-muted small text-uppercase">Bin Code</th>
@@ -74,11 +86,11 @@ include $projectRoot . "/includes/sidebar.php";
                     </tr>
                     <tr>
                         <th class="bg-light text-muted small text-uppercase">Zone / Area</th>
-                        <td><?= htmlspecialchars($bin['zone'] ?? ($bin['zone_name'] ?? 'L0-A1')); ?></td>
+                        <td><span class="badge bg-secondary-subtle text-dark border font-monospace"><?= htmlspecialchars($bin['zone_name'] ?? ($bin['zone'] ?? 'L0-A1')); ?></span></td>
                     </tr>
                     <tr>
                         <th class="bg-light text-muted small text-uppercase">Max Capacity</th>
-                        <td><span class="badge bg-info-subtle text-dark fs-6 px-3 py-1 rounded-pill"><?= floatval($bin['max_capacity_kg'] ?? ($bin['max_capacity'] ?? 500)); ?> KG</span></td>
+                        <td><span class="badge bg-info-subtle text-dark fs-6 px-3 py-1 rounded-pill"><?= floatval($bin['max_capacity'] ?? ($bin['max_capacity_kg'] ?? 500)); ?> KG</span></td>
                     </tr>
                     <tr>
                         <th class="bg-light text-muted small text-uppercase">Status</th>
@@ -95,7 +107,7 @@ include $projectRoot . "/includes/sidebar.php";
                 <div class="d-flex justify-content-between align-items-center mt-4 pt-2">
                     <a href="index.php" class="btn btn-light px-4 rounded-pill">Back</a>
                     <div class="d-flex gap-2">
-                        <a href="edit.php?id=<?= $bin['id']; ?>" class="btn btn-warning px-4 fw-bold rounded-pill"><i class="fa-solid fa-pen me-1"></i> Edit</a>
+                        <a href="edit.php?id=<?= $bin['id']; ?>" class="btn btn-warning px-4 fw-bold rounded-pill text-white"><i class="fa-solid fa-pen me-1"></i> Edit</a>
                         <a href="delete.php?id=<?= $bin['id']; ?>" class="btn btn-danger px-4 fw-bold rounded-pill" onclick="return confirm('Delete this Bin Location?');"><i class="fa-solid fa-trash me-1"></i> Delete</a>
                     </div>
                 </div>

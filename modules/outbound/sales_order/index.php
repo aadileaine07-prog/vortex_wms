@@ -1,4 +1,5 @@
 <?php
+
 session_start();
 
 if (!isset($_SESSION['employee_id'])) {
@@ -15,7 +16,7 @@ $result = mysqli_query($conn, "
 ");
 
 include "../../../includes/header.php";
-include "../../../includes/navbar.php";
+include "../../../includes/navbar.php";x
 include "../../../includes/sidebar.php";
 ?>
 

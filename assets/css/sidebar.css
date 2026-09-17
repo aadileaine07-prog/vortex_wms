@@ -15,10 +15,9 @@
 
     z-index: 1100;
 
-    overflow-y: auto;
+    display: flex;             /* Flexbox added */
+    flex-direction: column;    /* Stack contents top to bottom */
     overflow-x: hidden;
-
-    scrollbar-width: thin;
 }
 
 
@@ -33,6 +32,8 @@
     text-align: center;
 
     border-bottom: 1px solid rgba(255,255,255,.08);
+
+    flex-shrink: 0;            /* Prevent logo from shrinking */
 
 }
 
@@ -74,9 +75,15 @@
 
     list-style: none;
 
-    padding: 12px 10px 25px;
+    padding: 12px 10px 15px;
 
     margin: 0;
+
+    flex-grow: 1;              /* Take up remaining vertical space */
+    overflow-y: auto;          /* Scrollable menu list */
+    overflow-x: hidden;
+
+    scrollbar-width: thin;
 
 }
 
@@ -194,8 +201,14 @@
 
 
 /* =========================================
-   LOGOUT
+   LOGOUT (STicky Bottom item)
 ========================================= */
+
+.menu li.logout-item {
+    margin-top: auto;          /* Automatically pushes logout to the very bottom */
+    padding-top: 10px;
+    border-top: 1px solid rgba(255,255,255,0.08);
+}
 
 .menu li a.logout {
 

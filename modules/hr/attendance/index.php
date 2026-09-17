@@ -9,9 +9,10 @@ if (!isset($_SESSION['employee_id'])) {
 require_once "../../../config/database.php";
 
 /* ===============================
-   Dashboard Cards Data
+   Dashboard Cards Data & Filters
 ================================ */
-$today = date("Y-m-d");
+$selected_date = isset($_GET['date']) ? $_GET['date'] : date("Y-m-d");
+$today = $selected_date;
 
 $totalEmployees = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) total FROM employees WHERE status='Active'"))['total'] ?? 0;
 $present        = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) total FROM attendance WHERE attendance_date='$today' AND status='Present'"))['total'] ?? 0;
@@ -36,7 +37,7 @@ include "../../../includes/sidebar.php";
                 <p class="text-muted mb-0">Manage Daily Employee Attendance & Time Logs</p>
             </div>
             <div>
-                <a href="mark.php" class="btn btn-primary px-3 shadow-sm">
+                <a href="mark.php" class="btn btn-primary px-3 shadow-sm rounded-pill">
                     <i class="fa-solid fa-plus me-1"></i> Mark Attendance
                 </a>
             </div>
@@ -44,14 +45,14 @@ include "../../../includes/sidebar.php";
 
         <!-- Success/Error Alert Messages -->
         <?php if (isset($_SESSION['success'])): ?>
-            <div class="alert alert-success alert-dismissible fade show" role="alert">
+            <div class="alert alert-success alert-dismissible fade show rounded-4 border-0 shadow-sm mb-4" role="alert">
                 <i class="fa-solid fa-circle-check me-2"></i><?= $_SESSION['success']; unset($_SESSION['success']); ?>
                 <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
             </div>
         <?php endif; ?>
 
         <?php if (isset($_SESSION['error'])): ?>
-            <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            <div class="alert alert-danger alert-dismissible fade show rounded-4 border-0 shadow-sm mb-4" role="alert">
                 <i class="fa-solid fa-triangle-exclamation me-2"></i><?= $_SESSION['error']; unset($_SESSION['error']); ?>
                 <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
             </div>
@@ -108,13 +109,13 @@ include "../../../includes/sidebar.php";
                 <!-- Filter Controls -->
                 <div class="row g-2 mb-3 align-items-center">
                     <div class="col-md-3">
-                        <input type="text" id="searchInput" class="form-control" placeholder="🔍 Search Employee...">
+                        <input type="text" id="searchInput" class="form-control border-2" placeholder="🔍 Search Employee...">
                     </div>
                     <div class="col-md-3">
-                        <input type="date" id="dateInput" class="form-control" value="<?= $today; ?>">
+                        <input type="date" id="dateInput" class="form-control border-2 fw-semibold" value="<?= htmlspecialchars($selected_date); ?>">
                     </div>
                     <div class="col-md-2">
-                        <select id="statusSelect" class="form-select">
+                        <select id="statusSelect" class="form-select border-2 fw-semibold">
                             <option value="">All Status</option>
                             <option value="Present">Present</option>
                             <option value="Absent">Absent</option>
@@ -123,7 +124,7 @@ include "../../../includes/sidebar.php";
                         </select>
                     </div>
                     <div class="col-md-4 text-end">
-                        <button onclick="window.print()" class="btn btn-dark btn-sm"><i class="fa-solid fa-print me-1"></i> Print</button>
+                        <button onclick="window.print()" class="btn btn-dark btn-sm rounded-pill px-3"><i class="fa-solid fa-print me-1"></i> Print</button>
                     </div>
                 </div>
 
@@ -163,26 +164,27 @@ include "../../../includes/sidebar.php";
                                         <td><strong><?= htmlspecialchars($row['employee_id']); ?></strong></td>
                                         <td><?= htmlspecialchars($row['full_name']); ?></td>
                                         <td><?= htmlspecialchars($row['department']); ?></td>
-                                        <td><?= $row['check_in'] ? date("h:i A", strtotime($row['check_in'])) : '-'; ?></td>
-                                        <td><?= $row['check_out'] ? date("h:i A", strtotime($row['check_out'])) : '-'; ?></td>
+                                        <td class="font-monospace text-success fw-bold"><?= $row['check_in'] ? date("h:i A", strtotime($row['check_in'])) : '-'; ?></td>
+                                        <td class="font-monospace text-danger fw-bold"><?= $row['check_out'] ? date("h:i A", strtotime($row['check_out'])) : '-'; ?></td>
                                         <td class="status-cell">
                                             <?php
                                             $st = $row['status'];
                                             if ($st == "Present") echo "<span class='badge bg-success'>Present</span>";
                                             elseif ($st == "Absent") echo "<span class='badge bg-danger'>Absent</span>";
                                             elseif ($st == "Leave") echo "<span class='badge bg-warning text-dark'>Leave</span>";
-                                            else echo "<span class='badge bg-purple text-white' style='background:#6f42c1;'>Half Day</span>";
+                                            else echo "<span class='badge text-white' style='background:#6f42c1;'>Half Day</span>";
                                             ?>
                                         </td>
                                         <td class="text-center">
-                                            <a href="view.php?id=<?= $row['id']; ?>" class="btn btn-info btn-sm text-white"><i class="fa-solid fa-eye"></i></a>
-                                            <a href="edit.php?id=<?= $row['id']; ?>" class="btn btn-warning btn-sm"><i class="fa-solid fa-pen-to-square"></i></a>
+                                            <a href="view.php?id=<?= $row['id']; ?>" class="btn btn-info btn-sm text-white rounded-circle" title="View"><i class="fa-solid fa-eye"></i></a>
+                                            <a href="edit.php?id=<?= $row['id']; ?>" class="btn btn-warning btn-sm rounded-circle" title="Edit"><i class="fa-solid fa-pen-to-square"></i></a>
+                                            <a href="delete.php?id=<?= $row['id']; ?>" class="btn btn-outline-danger btn-sm rounded-circle" onclick="return confirm('Are you sure you want to delete this attendance record?');" title="Delete"><i class="fa-solid fa-trash"></i></a>
                                         </td>
                                     </tr>
                             <?php
                                 }
                             } else {
-                                echo "<tr><td colspan='8' class='text-center text-muted py-4'>No Attendance Records Found for Today</td></tr>";
+                                echo "<tr><td colspan='8' class='text-center text-muted py-4'>No Attendance Records Found for Selected Date</td></tr>";
                             }
                             ?>
                         </tbody>
@@ -198,11 +200,19 @@ include "../../../includes/sidebar.php";
 <?php include "../../../includes/footer.php"; ?>
 
 <script>
-// Filter Table Rows dynamically
 document.addEventListener("DOMContentLoaded", function() {
     const searchInput = document.getElementById("searchInput");
     const statusSelect = document.getElementById("statusSelect");
+    const dateInput = document.getElementById("dateInput");
 
+    // Date change handler to fetch records of selected date
+    if(dateInput) {
+        dateInput.addEventListener("change", function() {
+            window.location.href = "index.php?date=" + this.value;
+        });
+    }
+
+    // Filter Table Rows dynamically via search and status dropdown
     function filterTable() {
         const searchVal = searchInput.value.toLowerCase();
         const statusVal = statusSelect.value.toLowerCase();

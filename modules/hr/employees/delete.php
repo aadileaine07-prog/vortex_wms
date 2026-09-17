@@ -18,7 +18,22 @@ if (!isset($_SESSION['employee_id'])) {
    DATABASE
 ============================== */
 
+$conn = null;
 require_once "../../../config/database.php";
+
+// Support the connection variable defined by the database configuration.
+if ($conn === null && isset($mysqli) && $mysqli instanceof mysqli) {
+
+    $conn = $mysqli;
+
+}
+
+if (!($conn instanceof mysqli)) {
+
+    header("Location: index.php?error=database");
+    exit();
+
+}
 
 
 /* ==============================

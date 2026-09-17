@@ -19,7 +19,7 @@ if (isset($_GET['id'])) {
     $target_id = intval($_GET['id']);
 
     // Admin khud ko force logout nahi kar sakta
-    if ($target_id == $_SESSION['user_id']) {
+   if ($target_id == $_SESSION['employee_id']) {
         $_SESSION['error'] = "You cannot force logout yourself!";
         header("Location: index.php");
         exit();

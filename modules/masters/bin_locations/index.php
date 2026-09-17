@@ -31,7 +31,7 @@ if (!$cdChk || mysqli_num_rows($cdChk) == 0) {
     $codeCol = "code";
 }
 
-// 2. Fetch Active Warehouse Bins
+// 2. Fetch All Bin Locations Safely (Removed strict status restriction to prevent empty list)
 $query = "
     SELECT 
         b.*,
@@ -39,7 +39,6 @@ $query = "
         COALESCE(w.{$codeCol}, 'WH') AS warehouse_code
     FROM bin_locations b
     LEFT JOIN {$whTable} w ON w.id = b.warehouse_id
-    WHERE (LOWER(w.status) = 'active' OR w.status = '1' OR b.warehouse_id IS NULL OR b.warehouse_id = 0)
     ORDER BY b.id DESC
 ";
 $result = mysqli_query($conn, $query);
@@ -155,7 +154,7 @@ include $projectRoot . "/includes/header.php";
                             <tr>
                                 <td colspan="7" class="text-center py-5 text-muted">
                                     <i class="fa-solid fa-boxes-stacked fs-2 d-block mb-2 text-secondary opacity-50"></i>
-                                    No active bin locations found. Click <strong>Add Single Bin</strong> or <strong>Bulk Add / Range</strong> to create coordinates.
+                                    No bin locations found. Click <strong>Add Single Bin</strong> or <strong>Bulk Add / Range</strong> to create coordinates.
                                 </td>
                             </tr>
                         <?php endif; ?>
