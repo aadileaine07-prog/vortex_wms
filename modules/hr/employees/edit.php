@@ -28,26 +28,30 @@ if (!isset($conn) || !($conn instanceof mysqli)) {
     exit();
 }
 
-// Strict Fetching
+// Smart Flexible Fetching (Supports both primary integer ID and string Employee ID)
 if (!empty($rawId)) {
     if (is_numeric($rawId)) {
         $stmt = mysqli_prepare($conn, "SELECT * FROM employees WHERE id = ? LIMIT 1");
         mysqli_stmt_bind_param($stmt, "i", $rawId);
-    } else {
-        $stmt = mysqli_prepare($conn, "SELECT * FROM employees WHERE employee_id = ? LIMIT 1");
-        mysqli_stmt_bind_param($stmt, "s", $rawId);
-    }
-    
-    if ($stmt) {
         mysqli_stmt_execute($stmt);
         $res = mysqli_stmt_get_result($stmt);
         if ($res && mysqli_num_rows($res) > 0) {
             $row = mysqli_fetch_assoc($res);
         }
     }
+    
+    if (!$row) {
+        $stmt2 = mysqli_prepare($conn, "SELECT * FROM employees WHERE employee_id = ? LIMIT 1");
+        mysqli_stmt_bind_param($stmt2, "s", $rawId);
+        mysqli_stmt_execute($stmt2);
+        $res2 = mysqli_stmt_get_result($stmt2);
+        if ($res2 && mysqli_num_rows($res2) > 0) {
+            $row = mysqli_fetch_assoc($res2);
+        }
+    }
 }
 
-// Agar employee record database mein nahi mila, toh seedha index par bhej do
+// Agar record nahi mila tabhi redirect karo
 if (!$row) {
     $_SESSION['error'] = "Employee record not found or invalid ID.";
     header("Location: index.php");
@@ -151,8 +155,8 @@ include $projectRoot . "/includes/header.php";
                         <div class="row g-3">
                             
                             <div class="col-md-6">
-                                <label class="form-label small fw-bold text-muted">Full Name <span class="text-danger">*</span></label>
-                                <input type="text" name="full_name" class="form-control border-2 fw-semibold" value="<?= htmlspecialchars($row['full_name'] ?? ''); ?>" required>
+                                <label class="form-label small fw-bold text-muted">Full Name</label>
+                                <input type="text" name="full_name" class="form-control border-2 fw-semibold" value="<?= htmlspecialchars($row['full_name'] ?? ''); ?>">
                             </div>
 
                             <div class="col-md-6">
@@ -180,8 +184,8 @@ include $projectRoot . "/includes/header.php";
                             </div>
 
                             <div class="col-md-4">
-                                <label class="form-label small fw-bold text-muted">Department <span class="text-danger">*</span></label>
-                                <select name="department" class="form-select border-2 fw-semibold" required>
+                                <label class="form-label small fw-bold text-muted">Department</label>
+                                <select name="department" class="form-select border-2 fw-semibold">
                                     <?php 
                                     $depts = ['Operations', 'Inbound', 'Outbound', 'Inventory', 'Management', 'HR', 'QC', 'Warehouse'];
                                     $currDept = $row['department'] ?? '';
@@ -199,13 +203,13 @@ include $projectRoot . "/includes/header.php";
                             </div>
 
                             <div class="col-md-4">
-                                <label class="form-label small fw-bold text-muted">Security Access Role <span class="text-danger">*</span></label>
-                                <input type="text" name="role" class="form-control border-2 fw-semibold" value="<?= htmlspecialchars($row['role'] ?? ''); ?>" required>
+                                <label class="form-label small fw-bold text-muted">Security Access Role</label>
+                                <input type="text" name="role" class="form-control border-2 fw-semibold" value="<?= htmlspecialchars($row['role'] ?? ''); ?>">
                             </div>
 
                             <div class="col-md-6">
-                                <label class="form-label small fw-bold text-muted">Assigned Warehouse Hub <span class="text-danger">*</span></label>
-                                <select name="warehouse" class="form-select border-2 fw-semibold" required>
+                                <label class="form-label small fw-bold text-muted">Assigned Warehouse Hub</label>
+                                <select name="warehouse" class="form-select border-2 fw-semibold">
                                     <option value="">-- Choose Warehouse --</option>
                                     <?php 
                                     $currWh = $row['warehouse'] ?? '';
@@ -234,8 +238,8 @@ include $projectRoot . "/includes/header.php";
                             </div>
 
                             <div class="col-md-4">
-                                <label class="form-label small fw-bold text-muted">Login Username <span class="text-danger">*</span></label>
-                                <input type="text" name="username" class="form-control border-2 font-monospace fw-bold" value="<?= htmlspecialchars($row['username'] ?? ''); ?>" required>
+                                <label class="form-label small fw-bold text-muted">Login Username</label>
+                                <input type="text" name="username" class="form-control border-2 font-monospace fw-bold" value="<?= htmlspecialchars($row['username'] ?? ''); ?>">
                             </div>
 
                             <div class="col-md-4">

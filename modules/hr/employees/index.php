@@ -155,8 +155,8 @@ include "../../../includes/sidebar.php";
         <div class="card shadow-sm border-0 rounded-4 bg-white">
             <div class="card-body p-4">
                 
-                <!-- Search & Filter Form -->
-                <form method="GET" action="" class="row g-2 mb-4 align-items-center">
+                <!-- Search & Filter Form (Autocomplete Off added to prevent auto-selection) -->
+                <form method="GET" action="" class="row g-2 mb-4 align-items-center" autocomplete="off">
                     <div class="col-md-3">
                         <div class="input-group">
                             <span class="input-group-text bg-light border-2 border-end-0"><i class="fa-solid fa-magnifying-glass text-muted"></i></span>
@@ -172,7 +172,7 @@ include "../../../includes/sidebar.php";
                             if ($deptRes) {
                                 while($d = mysqli_fetch_assoc($deptRes)):
                             ?>
-                                <option value="<?= htmlspecialchars($d['department']); ?>" <?= ($department == $d['department']) ? 'selected' : ''; ?>>
+                                <option value="<?= htmlspecialchars($d['department']); ?>" <?= ($department === $d['department']) ? 'selected' : ''; ?>>
                                     <?= htmlspecialchars($d['department']); ?>
                                 </option>
                             <?php 
@@ -189,8 +189,9 @@ include "../../../includes/sidebar.php";
                             $roleRes = mysqli_query($conn, "SELECT DISTINCT role FROM employees WHERE role IS NOT NULL AND role!='' ORDER BY role ASC");
                             if ($roleRes) {
                                 while($r = mysqli_fetch_assoc($roleRes)):
+                                    $sel = ($role === $r['role']) ? 'selected' : '';
                             ?>
-                                <option value="<?= htmlspecialchars($r['role']); ?>" <?= ($role == $r['role']) ? 'selected' : ''; ?>>
+                                <option value="<?= htmlspecialchars($r['role']); ?>" <?= $sel; ?>>
                                     <?= htmlspecialchars($r['role']); ?>
                                 </option>
                             <?php 
@@ -203,8 +204,8 @@ include "../../../includes/sidebar.php";
                     <div class="col-md-2">
                         <select name="status" class="form-select border-2 fw-semibold" onchange="this.form.submit()">
                             <option value="">All Status</option>
-                            <option value="Active" <?= ($status == 'Active') ? 'selected' : ''; ?>>Active</option>
-                            <option value="Inactive" <?= ($status == 'Inactive') ? 'selected' : ''; ?>>Inactive</option>
+                            <option value="Active" <?= ($status === 'Active') ? 'selected' : ''; ?>>Active</option>
+                            <option value="Inactive" <?= ($status === 'Inactive') ? 'selected' : ''; ?>>Inactive</option>
                         </select>
                     </div>
 

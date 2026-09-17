@@ -18,21 +18,29 @@ if (!isset($conn)) {
     }
 }
 
-// Authentication & Live Session Guard
+// Authentication & Live Session Guard (Force Logout & Activity Update)
 if (isset($_SESSION['employee_id']) && isset($conn)) {
-    $current_user_id = $_SESSION['employee_id'];
+    $current_user_id = mysqli_real_escape_string($conn, $_SESSION['employee_id']);
 
     // Update Activity
-    @mysqli_query($conn, "UPDATE employees SET last_activity = NOW() WHERE id = '$current_user_id'");
+    mysqli_query($conn, "UPDATE employees SET last_activity = NOW() WHERE id = '$current_user_id'");
 
     // Check Force Logout
-    $chk_res = @mysqli_query($conn, "SELECT force_logout FROM employees WHERE id = '$current_user_id'");
-    if ($chk_res && $user_chk = mysqli_fetch_assoc($chk_res)) {
-        if (($user_chk['force_logout'] ?? 0) == 1) {
-            @mysqli_query($conn, "UPDATE employees SET force_logout = 0 WHERE id = '$current_user_id'");
+    $chk_res = mysqli_query($conn, "SELECT force_logout FROM employees WHERE id = '$current_user_id' LIMIT 1");
+    if ($chk_res && mysqli_num_rows($chk_res) > 0) {
+        $user_chk = mysqli_fetch_assoc($chk_res);
+        if (isset($user_chk['force_logout']) && (int)$user_chk['force_logout'] === 1) {
+            
+            // Reset force_logout flag
+            mysqli_query($conn, "UPDATE employees SET force_logout = 0 WHERE id = '$current_user_id'");
+            
+            // Destroy session properly
             session_unset();
             session_destroy();
-            header("Location: /vortex_wms/login.php?error=forced_logout");
+            session_start();
+            $_SESSION['error'] = "Your session has been terminated by an administrator.";
+            
+            header("Location: /vortex_wms/login.php");
             exit();
         }
     }
@@ -81,6 +89,19 @@ if (isset($_SESSION['employee_id']) && isset($conn)) {
         }
     </style>
 </head>
+<script>
+// Check every 5 seconds if the user has been force logged out
+setInterval(function() {
+    fetch('/vortex_wms/modules/hr/employees/check_logout_status.php')
+        .then(response => response.json())
+        .then(data => {
+            if (data.force_logout === true) {
+                window.location.href = '/vortex_wms/login.php?error=forced_logout';
+            }
+        })
+        .catch(error => console.error('Logout check error:', error));
+}, 5000);
+</script>
 <body>
 
 <?php 
@@ -88,4 +109,4 @@ require_once __DIR__ . "/sidebar.php";
 require_once __DIR__ . "/navbar.php"; 
 ?>
 
-<div class="main-content">
+<div class="main-content">  
