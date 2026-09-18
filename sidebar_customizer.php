@@ -11,6 +11,10 @@ if (!isset($_SESSION['employee_id'])) {
 }
 
 require_once $baseDir . "/config/database.php";
+include $baseDir . "/includes/header.php";
+
+// Access Control: Strict Sidebar Customizer access for Super Admin & Admin only
+allowRoles(['Super Admin', 'Admin']);
 
 // 1. Auto-create sidebar customization table if not exists
 @mysqli_query($conn, "
@@ -27,15 +31,14 @@ require_once $baseDir . "/config/database.php";
 
 // Insert default menus if table is empty
 $chkCount = mysqli_fetch_array(mysqli_query($conn, "SELECT COUNT(*) FROM sidebar_customization"))[0];
-if ($chkCount == 0) {
-    $defaults = [
+if ($chkCount == 0) {$defaults = [
         ['dashboard', 'Dashboard', 'fa-solid fa-house', 'index.php', 1, 1],
         ['inventory', 'Inventory Management', 'fa-solid fa-boxes-stacked', 'modules/inventory/index.php', 1, 2],
         ['adjustments', 'Stock Adjustments', 'fa-solid fa-sliders', 'modules/inventory/adjustment/index.php', 1, 3],
         ['notifications', 'Notifications Center', 'fa-solid fa-bell', 'notifications/index.php', 1, 4],
         ['file_editor', 'Code Editor', 'fa-solid fa-code', 'file_editor.php', 1, 5]
     ];
-    foreach ($defaults as $d) {
+    foreach ($defaults as$d) {
         mysqli_query($conn, "INSERT INTO sidebar_customization (menu_key, menu_name, icon, url, is_active, sort_order) VALUES ('{$d[0]}', '{$d[1]}', '{$d[2]}', '{$d[3]}', {$d[4]}, {$d[5]})");
     }
 }
@@ -44,26 +47,23 @@ if ($chkCount == 0) {
 if (isset($_GET['toggle']) && isset($_GET['id'])) {
     $id = intval($_GET['id']);
     $status = intval($_GET['status']);
-    mysqli_query($conn, "UPDATE sidebar_customization SET is_active = $status WHERE id = $id");
+    mysqli_query($conn, "UPDATE sidebar_customization SET is_active = $status WHERE id =$id");
     $_SESSION['success'] = "Sidebar menu status updated successfully!";
     header("Location: sidebar_customizer.php");
     exit();
 }
 
 // Handle Form Submission for Editing/Adding Menus
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_menu'])) {
-    $menuId   = intval($_POST['menu_id'] ?? 0);
-    $menuName = mysqli_real_escape_string($conn, $_POST['menu_name']);
-    $icon     = mysqli_real_escape_string($conn, $_POST['icon']);
-    $url      = mysqli_real_escape_string($conn, $_POST['url']);
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_menu'])) {$menuId   = intval($_POST['menu_id'] ?? 0);$menuName = mysqli_real_escape_string($conn,$_POST['menu_name']);
+    $icon     = mysqli_real_escape_string($conn, $_POST['icon']);$url      = mysqli_real_escape_string($conn,$_POST['url']);
     $sort     = intval($_POST['sort_order']);
 
     if ($menuId > 0) {
         mysqli_query($conn, "UPDATE sidebar_customization SET menu_name='$menuName', icon='$icon', url='$url', sort_order=$sort WHERE id=$menuId");
         $_SESSION['success'] = "Sidebar menu updated successfully!";
     } else {
-        $key = strtolower(trim(preg_replace('/[^A-Za-z0-9-]+/', '_', $menuName)));
-        mysqli_query($conn, "INSERT INTO sidebar_customization (menu_key, menu_name, icon, url, is_active, sort_order) VALUES ('$key', '$menuName', '$icon', '$url', 1, $sort)");
+        $key = strtolower(trim(preg_replace('/[^A-Za-z0-9-]+/', '_',$menuName)));
+        mysqli_query($conn, "INSERT INTO sidebar_customization (menu_key, menu_name, icon, url, is_active, sort_order) VALUES ('$key', '$menuName', '$icon', '$url', 1,$sort)");
         $_SESSION['success'] = "New sidebar menu added successfully!";
     }
     header("Location: sidebar_customizer.php");
@@ -71,8 +71,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_menu'])) {
 }
 
 $menus = mysqli_query($conn, "SELECT * FROM sidebar_customization ORDER BY sort_order ASC");
-
-include $baseDir . "/includes/header.php";
 ?>
 
 <div class="container-fluid py-4">

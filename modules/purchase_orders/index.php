@@ -14,6 +14,10 @@ if (!isset($_SESSION['employee_id'])) {
 }
 
 require_once $projectRoot . "/config/database.php";
+include $projectRoot . "/includes/header.php";
+
+// Access Control: Allow Inventory, Warehouse, Operations, Admin & Super Admin
+allowRoles(['Inventory', 'Warehouse', 'Operations']);
 
 /* ==========================================================================
    1. FETCH PURCHASE ORDERS WITH SUPPLIER & ITEM COUNTS
@@ -30,7 +34,7 @@ $query = "
     ORDER BY po.id DESC
 ";
 
-$result = @mysqli_query($conn, $query);
+$result = @mysqli_query($conn,$query);
 
 // Metric counters for Executive KPI Tiles
 $totalPOs       = 0;
@@ -41,22 +45,17 @@ $totalPOValuation = 0.00;
 $poList = [];
 if ($result && mysqli_num_rows($result) > 0) {
     while ($row = mysqli_fetch_assoc($result)) {
-        $poList[] = $row;
+        $poList[] =$row;
         $totalPOs++;
         $st = strtolower(trim($row['status'] ?? 'pending'));
         $amt = floatval($row['total_amount'] ?? 0);
-        $totalPOValuation += $amt;
+        $totalPOValuation +=$amt;
 
-        if (in_array($st, ['received', 'completed'])) {
-            $receivedPOs++;
-        } elseif ($st !== 'cancelled') {
-            $pendingPOs++;
+        if (in_array($st, ['received', 'completed'])) {$receivedPOs++;
+        } elseif ($st !== 'cancelled') {$pendingPOs++;
         }
     }
 }
-
-// Unified Header Include
-include $projectRoot . "/includes/header.php";
 ?>
 
 <div class="container-fluid p-0">
@@ -169,16 +168,14 @@ include $projectRoot . "/includes/header.php";
                     </thead>
                     <tbody>
                         <?php if (!empty($poList)): ?>
-                            <?php foreach ($poList as $row): ?>
+                            <?php foreach ($poList as$row): ?>
                                 <?php
-                                    $st = $row['status'] ?? 'Pending';
+                                    $st =$row['status'] ?? 'Pending';
                                     $statusLower = strtolower(trim($st));
                                     
-                                    if (in_array($statusLower, ['completed', 'received'])) {
-                                        $badgeHtml = '<span class="badge bg-success-subtle text-success border border-success-subtle px-3 py-1 rounded-pill"><i class="fa-solid fa-circle-check me-1"></i>Received</span>';
+                                    if (in_array($statusLower, ['completed', 'received'])) {$badgeHtml = '<span class="badge bg-success-subtle text-success border border-success-subtle px-3 py-1 rounded-pill"><i class="fa-solid fa-circle-check me-1"></i>Received</span>';
                                         $statusCategory = 'Received';
-                                    } elseif ($statusLower === 'cancelled') {
-                                        $badgeHtml = '<span class="badge bg-danger-subtle text-danger border border-danger-subtle px-3 py-1 rounded-pill"><i class="fa-solid fa-circle-xmark me-1"></i>Cancelled</span>';
+                                    } elseif ($statusLower === 'cancelled') {$badgeHtml = '<span class="badge bg-danger-subtle text-danger border border-danger-subtle px-3 py-1 rounded-pill"><i class="fa-solid fa-circle-xmark me-1"></i>Cancelled</span>';
                                         $statusCategory = 'Cancelled';
                                     } else {
                                         $badgeHtml = '<span class="badge bg-warning-subtle text-warning border border-warning-subtle px-3 py-1 rounded-pill"><i class="fa-solid fa-clock me-1"></i>Pending</span>';
@@ -198,7 +195,7 @@ include $projectRoot . "/includes/header.php";
                                     </td>
                                     <td><small class="text-muted"><?= date("d M Y", strtotime($row['order_date'])); ?></small></td>
                                     <td>
-                                        <?php if (!empty($row['expected_date']) && $row['expected_date'] !== '0000-00-00'): ?>
+                                        <?php if (!empty($row['expected_date']) &&$row['expected_date'] !== '0000-00-00'): ?>
                                             <span class="small fw-semibold text-dark"><?= date("d M Y", strtotime($row['expected_date'])); ?></span>
                                         <?php else: ?>
                                             <span class="text-muted small">-</span>

@@ -10,92 +10,84 @@ if (!isset($_SESSION['employee_id'])) {
 }
 
 require_once $projectRoot . "/config/database.php";
+include $projectRoot . "/includes/header.php";
+
+// Access Control: Allow HR, Management, Admin & Super Admin
+allowRoles(['HR', 'Management']);
 
 // 1. Detect Available Columns in Employees Table Safely
 $checkEmpCols = mysqli_query($conn, "SHOW COLUMNS FROM employees");
 $empCols = [];
 if ($checkEmpCols) {
     while ($c = mysqli_fetch_assoc($checkEmpCols)) {
-        $empCols[] = $c['Field'];
+        $empCols[] =$c['Field'];
     }
 }
 
-if (in_array('name', $empCols)) {
-    $empNameSelect = "e.name";
+if (in_array('name', $empCols)) {$empNameSelect = "e.name";
     $empNameSingle = "name AS full_name";
-} elseif (in_array('first_name', $empCols) && in_array('last_name', $empCols)) {
-    $empNameSelect = "CONCAT_WS(' ', e.first_name, e.last_name)";
+} elseif (in_array('first_name', $empCols) && in_array('last_name', $empCols)) {$empNameSelect = "CONCAT_WS(' ', e.first_name, e.last_name)";
     $empNameSingle = "CONCAT_WS(' ', first_name, last_name) AS full_name";
-} elseif (in_array('full_name', $empCols)) {
-    $empNameSelect = "e.full_name";
+} elseif (in_array('full_name', $empCols)) {$empNameSelect = "e.full_name";
     $empNameSingle = "full_name";
-} elseif (in_array('username', $empCols)) {
-    $empNameSelect = "e.username";
+} elseif (in_array('username', $empCols)) {$empNameSelect = "e.username";
     $empNameSingle = "username AS full_name";
 } else {
     $empNameSelect = "CONCAT('Employee #', e.id)";
     $empNameSingle = "CONCAT('Employee #', id) AS full_name";
 }
 
-$roleSelect = in_array('role', $empCols) ? "e.role AS emp_role" : "'Staff' AS emp_role";
-$roleSingle = in_array('role', $empCols) ? "role" : "'Staff' AS role";
+$roleSelect = in_array('role',$empCols) ? "e.role AS emp_role" : "'Staff' AS emp_role";
+$roleSingle = in_array('role',$empCols) ? "role" : "'Staff' AS role";
 
 // 2. Handle Payroll Form Submission
-if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['save_payroll'])) {
-    $emp_id         = intval($_POST['employee_id']);
-    $month          = mysqli_real_escape_string($conn, trim($_POST['month']));
+if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['save_payroll'])) {$emp_id         = intval($_POST['employee_id']);$month          = mysqli_real_escape_string($conn, trim($_POST['month']));
     $year           = intval($_POST['year']);
     $basic          = floatval($_POST['basic_salary']);
     $paid_leaves    = intval($_POST['paid_leaves'] ?? 0);
     $absent_days    = intval($_POST['absent_days'] ?? 0);
     $other_deduct   = floatval($_POST['other_deductions'] ?? 0);
-    $pay_date       = mysqli_real_escape_string($conn, $_POST['payment_date']);
-    $status         = mysqli_real_escape_string($conn, $_POST['status']);
+    $pay_date       = mysqli_real_escape_string($conn, $_POST['payment_date']);$status         = mysqli_real_escape_string($conn,$_POST['status']);
 
     // Per day rate calculation (based on 30 working days)
     $daily_rate     = ($basic > 0) ? ($basic / 30) : 0;
-    $paid_leave_amt = round($paid_leaves * $daily_rate, 2);
-    $absent_deduct  = round($absent_days * $daily_rate, 2);
+    $paid_leave_amt = round($paid_leaves * $daily_rate, 2);$absent_deduct  = round($absent_days * $daily_rate, 2);
 
     // Process Multiple Allowances
     $total_allowance = 0;
     $allowance_breakdown = [];
 
-    if ($paid_leave_amt > 0) {
-        $allowance_breakdown[] = "Paid Leaves ({$paid_leaves} Days): ₹" . number_format($paid_leave_amt, 2);
+    if ($paid_leave_amt > 0) {$allowance_breakdown[] = "Paid Leaves ({$paid_leaves} Days): ₹" . number_format($paid_leave_amt, 2);
     }
 
     if (isset($_POST['allowance_amount']) && is_array($_POST['allowance_amount'])) {
-        $types   = $_POST['allowance_type'] ?? [];
-        $amounts = $_POST['allowance_amount'];
+        $types   =$_POST['allowance_type'] ?? [];
+        $amounts =$_POST['allowance_amount'];
 
-        for ($i = 0; $i < count($amounts); $i++) {
-            $amt  = floatval($amounts[$i] ?? 0);
-            $type = trim($types[$i] ?? 'Allowance');
+        for ($i = 0; $i < count($amounts);$i++) {
+            $amt  = floatval($amounts[$i] ?? 0);$type = trim($types[$i] ?? 'Allowance');
             if ($amt > 0) {
-                $total_allowance += $amt;
+                $total_allowance +=$amt;
                 $allowance_breakdown[] = "$type: ₹" . number_format($amt, 2);
             }
         }
     }
 
-    $final_allowances = $total_allowance + $paid_leave_amt;
-    $final_deductions = $other_deduct + $absent_deduct;
+    $final_allowances = $total_allowance +$paid_leave_amt;
+    $final_deductions = $other_deduct +$absent_deduct;
     $allowance_summary_str = mysqli_real_escape_string($conn, implode(", ", $allowance_breakdown));
 
     // Final Net Salary Calculation
-    $net_salary = max(0, ($basic + $final_allowances) - $final_deductions);
+    $net_salary = max(0, ($basic + $final_allowances) -$final_deductions);
 
-    if ($emp_id <= 0 || $basic <= 0) {
-        $_SESSION['error'] = "Please select a valid employee and enter a basic salary.";
+    if ($emp_id <= 0 || $basic <= 0) {$_SESSION['error'] = "Please select a valid employee and enter a basic salary.";
     } else {
         // Safe check for schema columns
         $checkCols = mysqli_query($conn, "SHOW COLUMNS FROM payroll");
         $cols = [];
-        while ($c = mysqli_fetch_assoc($checkCols)) { $cols[] = $c['Field']; }
+        while ($c = mysqli_fetch_assoc($checkCols)) { $cols[] =$c['Field']; }
 
-        if (in_array('paid_leaves', $cols) && in_array('allowance_type', $cols)) {
-            $insertQuery = "
+        if (in_array('paid_leaves', $cols) && in_array('allowance_type', $cols)) {$insertQuery = "
                 INSERT INTO payroll (employee_id, month, year, basic_salary, paid_leaves, paid_leave_amount, absent_days, absent_deduction, allowance_type, allowances, deductions, net_salary, payment_date, status)
                 VALUES ('$emp_id', '$month', '$year', '$basic', '$paid_leaves', '$paid_leave_amt', '$absent_days', '$absent_deduct', '$allowance_summary_str', '$final_allowances', '$final_deductions', '$net_salary', '$pay_date', '$status')
             ";
@@ -106,8 +98,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['save_payroll'])) {
             ";
         }
 
-        if (mysqli_query($conn, $insertQuery)) {
-            $_SESSION['success'] = "Payroll for <strong>$month $year</strong> processed successfully!";
+        if (mysqli_query($conn, $insertQuery)) {$_SESSION['success'] = "Payroll for <strong>$month$year</strong> processed successfully!";
         } else {
             $_SESSION['error'] = "Payroll Failed: " . mysqli_error($conn);
         }
@@ -135,9 +126,9 @@ $statQuery = mysqli_query($conn, "
     FROM payroll
 ");
 if ($statQuery && $row = mysqli_fetch_assoc($statQuery)) {
-    $stats['total_records'] = $row['total_count'] ?? 0;
-    $stats['total_paid']    = $row['paid_sum'] ?? 0;
-    $stats['total_pending'] = $row['pending_sum'] ?? 0;
+    $stats['total_records'] =$row['total_count'] ?? 0;
+    $stats['total_paid']    =$row['paid_sum'] ?? 0;
+    $stats['total_pending'] =$row['pending_sum'] ?? 0;
 }
 
 // 5. Fetch Records
@@ -151,7 +142,6 @@ $payrollQuery = mysqli_query($conn, "
 // 6. Fetch Employees List
 $empQuery = mysqli_query($conn, "SELECT id, {$empNameSingle}, {$roleSingle} FROM employees ORDER BY full_name ASC");
 
-include $projectRoot . "/includes/header.php";
 include $projectRoot . "/includes/navbar.php";
 include $projectRoot . "/includes/sidebar.php";
 ?>
@@ -227,7 +217,7 @@ include $projectRoot . "/includes/sidebar.php";
                             </tr>
                         </thead>
                         <tbody>
-                            <?php if ($payrollQuery && mysqli_num_rows($payrollQuery) > 0): $idx = 1; ?>
+                            <?php if ($payrollQuery && mysqli_num_rows($payrollQuery) > 0):$idx = 1; ?>
                                 <?php while ($row = mysqli_fetch_assoc($payrollQuery)): ?>
                                     <tr>
                                         <td><strong>#<?= $idx++; ?></strong></td>
@@ -237,7 +227,7 @@ include $projectRoot . "/includes/sidebar.php";
                                         </td>
                                         <td>
                                             <span class="badge bg-light text-dark border font-monospace fs-6">
-                                                <?= htmlspecialchars($row['month']) . ' ' . $row['year']; ?>
+                                                <?= htmlspecialchars($row['month']) . ' ' .$row['year']; ?>
                                             </span>
                                         </td>
                                         <td>₹<?= number_format($row['basic_salary'], 2); ?></td>
@@ -314,7 +304,7 @@ include $projectRoot . "/includes/sidebar.php";
                             <select name="month" class="form-select" required>
                                 <?php 
                                 $months = ["January","February","March","April","May","June","July","August","September","October","November","December"];
-                                foreach ($months as $m) {
+                                foreach ($months as$m) {
                                     $selected = ($m == date('F')) ? 'selected' : '';
                                     echo "<option value='$m' $selected>$m</option>";
                                 }

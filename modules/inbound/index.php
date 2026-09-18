@@ -13,6 +13,10 @@ if (!isset($_SESSION['employee_id'])) {
 }
 
 require_once $projectRoot . "/config/database.php";
+include $projectRoot . "/includes/header.php";
+
+// Access Control: Allow Inbound, Warehouse, Operations, Admin & Super Admin
+allowRoles(['Inbound', 'Warehouse', 'Operations']);
 
 /* ==========================================================================
    FETCH INBOUND SHIPMENTS / GRN LEDGER
@@ -46,8 +50,6 @@ if ($hasTable) {
         }
     }
 }
-
-include $projectRoot . "/includes/header.php";
 ?>
 
 <div class="container-fluid p-0">

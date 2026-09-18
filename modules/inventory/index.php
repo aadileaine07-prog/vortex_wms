@@ -1,5 +1,7 @@
 <?php
-session_start();
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
 
 $projectRoot = dirname(__DIR__, 2);
 
@@ -9,6 +11,10 @@ if (!isset($_SESSION['employee_id'])) {
 }
 
 require_once $projectRoot . "/config/database.php";
+include $projectRoot . "/includes/header.php";
+
+// Access Control: Allow Inventory, Warehouse, Operations, Admin & Super Admin
+allowRoles(['Inventory', 'Warehouse', 'Operations']);
 
 // Handle Search & Filters
 $search = trim($_GET['search'] ?? '');
@@ -31,7 +37,6 @@ $low_stock_count = $low_stock_res ? (mysqli_fetch_assoc($low_stock_res)['total']
 $out_stock_res = mysqli_query($conn, "SELECT COUNT(*) total FROM inventory WHERE COALESCE(available_qty, quantity, 0) = 0");
 $out_stock_count = $out_stock_res ? (mysqli_fetch_assoc($out_stock_res)['total'] ?? 0) : 0;
 
-include $projectRoot . "/includes/header.php";
 include $projectRoot . "/includes/navbar.php";
 include $projectRoot . "/includes/sidebar.php";
 ?>

@@ -12,6 +12,14 @@ if (!isset($_SESSION['employee_id'])) {
 
 require_once "../../../config/database.php";
 
+include "../../../includes/header.php";
+
+// Access Control: Only HR, Management, Admin & Super Admin allowed
+allowRoles(['HR', 'Management']);
+
+include "../../../includes/navbar.php";
+include "../../../includes/sidebar.php";
+
 /* ===============================
    Dashboard Counters
 ================================ */
@@ -75,10 +83,6 @@ if (!empty($params)) {
 
 $stmt->execute();
 $result = $stmt->get_result();
-
-include "../../../includes/header.php";
-include "../../../includes/navbar.php";
-include "../../../includes/sidebar.php";
 ?>
 
 <div class="content">

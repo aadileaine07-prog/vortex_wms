@@ -9,6 +9,13 @@ if (!isset($_SESSION['employee_id'])) {
 }
 
 require_once $projectRoot . "/config/database.php";
+include $projectRoot . "/includes/header.php";
+
+// Access Control: Allow Outbound, Warehouse, Operations, Admin & Super Admin
+allowRoles(['Outbound', 'Warehouse', 'Operations']);
+
+include $projectRoot . "/includes/navbar.php";
+include $projectRoot . "/includes/sidebar.php";
 
 $order_no = trim($_GET['order_no'] ?? '');
 $picks = [];
@@ -21,10 +28,6 @@ if (!empty($order_no)) {
         WHERE p.order_number = '$order_no_safe' 
         ORDER BY i.location ASC");
 }
-
-include $projectRoot . "/includes/header.php";
-include $projectRoot . "/includes/navbar.php";
-include $projectRoot . "/includes/sidebar.php";
 ?>
 
 <div class="content"><div class="container-fluid p-4">

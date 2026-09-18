@@ -1,7 +1,12 @@
 <?php
-session_start();
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
 
-$projectRoot = file_exists(__DIR__ . "/../../config/database.php") ? dirname(__DIR__, 2) : dirname(__DIR__, 3);
+// Dynamic Project Root Detection
+$projectRoot = file_exists(__DIR__ . "/../../config/database.php") 
+    ? dirname(__DIR__, 2) 
+    : (file_exists(__DIR__ . "/../../../config/database.php") ? dirname(__DIR__, 3) : dirname(__DIR__, 1));
 
 if (!isset($_SESSION['employee_id'])) {
     header("Location: /vortex_wms/login.php");
@@ -9,6 +14,10 @@ if (!isset($_SESSION['employee_id'])) {
 }
 
 require_once $projectRoot . "/config/database.php";
+include $projectRoot . "/includes/header.php";
+
+// Access Control: Strict System Settings access for Super Admin & Admin only
+allowRoles(['Super Admin', 'Admin']);
 
 // 1. One-Click Complete SQL Database Export
 if (isset($_GET['action']) && $_GET['action'] == 'download_backup') {
@@ -169,7 +178,6 @@ $dbSizeRes = mysqli_query($conn, "SELECT round(SUM(data_length + index_length) /
 $dbSize = mysqli_fetch_assoc($dbSizeRes)['db_size'] ?? '0.00';
 $diskFree = round(disk_free_space("/") / (1024 * 1024 * 1024), 2);
 
-include $projectRoot . "/includes/header.php";
 include $projectRoot . "/includes/navbar.php";
 include $projectRoot . "/includes/sidebar.php";
 ?>

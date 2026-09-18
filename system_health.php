@@ -13,12 +13,15 @@ if (!isset($_SESSION['employee_id'])) {
 }
 
 require_once $projectRoot . "/config/database.php";
+include $projectRoot . "/includes/header.php";
+
+// Access Control: Strict System Health access for Super Admin & Admin only
+allowRoles(['Super Admin', 'Admin']);
 
 // 1. Database Connection Status
 $dbStatus = true;
 $dbError = "";
-if (!$conn || mysqli_connect_errno()) {
-    $dbStatus = false;
+if (!$conn \vert{}\vert{} mysqli_connect_errno()) {$dbStatus = false;
     $dbError = mysqli_connect_error();
 }
 
@@ -37,12 +40,10 @@ $tablesToCheck = [
 ];
 
 $tableDiagnostics = [];
-foreach ($tablesToCheck as $tbl => $label) {
-    $exists = false;
+foreach ($tablesToCheck as$tbl => $label) {$exists = false;
     $rowCount = 0;
     $chk = @mysqli_query($conn, "SHOW TABLES LIKE '{$tbl}'");
-    if ($chk && mysqli_num_rows($chk) > 0) {
-        $exists = true;
+    if ($chk && mysqli_num_rows($chk) > 0) {$exists = true;
         $cntRes = @mysqli_query($conn, "SELECT COUNT(*) as cnt FROM `{$tbl}`");
         if ($cntRes) {
             $cntRow = mysqli_fetch_assoc($cntRes);
@@ -60,12 +61,11 @@ foreach ($tablesToCheck as $tbl => $label) {
 $projectFiles = [];
 if (is_dir($projectRoot)) {
     $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($projectRoot, RecursiveDirectoryIterator::SKIP_DOTS));
-    foreach ($iterator as $file) {
-        if ($file->isFile() && $file->getExtension() === 'php') {
+    foreach ($iterator as$file) {
+        if ($file->isFile() &&$file->getExtension() === 'php') {
             // Exclude system_health itself or vendor folders if any
-            $relativePath = str_replace($projectRoot, '', $file->getPathname());
-            if (strpos($relativePath, 'system_health.php') === false && strpos($relativePath, '.git') === false) {
-                $projectFiles[] = [
+            $relativePath = str_replace($projectRoot, '',$file->getPathname());
+            if (strpos($relativePath, 'system_health.php') === false && strpos($relativePath, '.git') === false) {$projectFiles[] = [
                     'path' => ltrim($relativePath, '/\\'),
                     'size' => round($file->getSize() / 1024, 2) . ' KB',
                     'modified' => date("d M Y H:i", $file->getMTime())
@@ -75,8 +75,6 @@ if (is_dir($projectRoot)) {
     }
 }
 sort($projectFiles);
-
-include $projectRoot . "/includes/header.php";
 ?>
 
 <div class="container-fluid p-0">
@@ -89,7 +87,7 @@ include $projectRoot . "/includes/header.php";
             <p class="text-muted mb-0">Complete audit of database tables, record counts, and all project source files.</p>
         </div>
         <div>
-            <a href="/vortex_wms/modules/dashboard/index.php" class="btn btn-secondary fw-bold rounded-pill px-3 shadow-sm">
+            <a href="/vortex_wms/dashboard.php" class="btn btn-secondary fw-bold rounded-pill px-3 shadow-sm">
                 <i class="fa-solid fa-arrow-left me-1"></i> Back to Dashboard
             </a>
         </div>
@@ -134,7 +132,7 @@ include $projectRoot . "/includes/header.php";
                         </tr>
                     </thead>
                     <tbody>
-                        <?php foreach ($tableDiagnostics as $tblKey => $info): ?>
+                        <?php foreach ($tableDiagnostics as $tblKey =>$info): ?>
                             <tr>
                                 <td><strong class="text-dark"><?= htmlspecialchars($info['label']); ?></strong></td>
                                 <td><code class="text-primary font-monospace"><?= htmlspecialchars($tblKey); ?></code></td>
@@ -173,7 +171,7 @@ include $projectRoot . "/includes/header.php";
                     </thead>
                     <tbody>
                         <?php if (!empty($projectFiles)): ?>
-                            <?php foreach ($projectFiles as $idx => $file): ?>
+                            <?php foreach ($projectFiles as $idx =>$file): ?>
                                 <tr>
                                     <td class="text-muted font-monospace">#<?= $idx + 1; ?></td>
                                     <td><code class="text-dark font-monospace fw-bold"><?= htmlspecialchars($file['path']); ?></code></td>

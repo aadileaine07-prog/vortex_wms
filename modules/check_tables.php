@@ -1,16 +1,28 @@
 <?php
-ini_set('display_errors', 1);
-error_reporting(E_ALL);
-
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-$conn = mysqli_connect("localhost", "root", "root", "vortex_wms", 8889);
-if (!$conn) {
-    die("Database Connection Failed");
+// Dynamic Project Root Detection
+$projectRoot = file_exists(__DIR__ . "/../../config/database.php") 
+    ? dirname(__DIR__, 2) 
+    : (file_exists(__DIR__ . "/../../../config/database.php") ? dirname(__DIR__, 3) : dirname(__DIR__, 1));
+
+if (!isset($_SESSION['employee_id'])) {
+    header("Location: /vortex_wms/login.php");
+    exit();
 }
-mysqli_set_charset($conn, "utf8mb4");
+
+require_once $projectRoot . "/config/database.php";
+
+// Include header which contains allowRoles function
+include $projectRoot . "/includes/header.php";
+
+// Access Control: Strict Database Studio access for Super Admin & Admin only
+allowRoles(['Super Admin', 'Admin']);
+
+ini_set('display_errors', 1);
+error_reporting(E_ALL);
 
 $selectedTable = isset($_GET['table']) ? trim($_GET['table']) : '';
 $action        = isset($_GET['action']) ? trim($_GET['action']) : '';
@@ -109,28 +121,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_new_table'])) 
             $lenStr = !empty($cLen) ? "($cLen)" : "";
             if ($cType === 'TEXT' || $cType === 'DATE' || $cType === 'TIMESTAMP' || $cType === 'DATETIME') $lenStr = "";
 
-            $line = "`$cName` $cType $lenStr $cNull";
-            if ($cKey === 'PRIMARY') {
-                $line .= " AUTO_INCREMENT";
+            $line = "`$cName` $cType $lenStr$cNull";
+            if ($cKey === 'PRIMARY') {$line .= " AUTO_INCREMENT";
                 $hasPrimary = true;
             }
-            if ($cKey === 'UNIQUE') $line .= " UNIQUE";
+            if ($cKey === 'UNIQUE')$line .= " UNIQUE";
 
-            $sqlParts[] = $line;
+            $sqlParts[] =$line;
         }
 
         if ($hasPrimary) {
-            for ($k = 0; $k < count($colNames); $k++) {
-                if (($colKeys[$k] ?? '') === 'PRIMARY') {
-                    $sqlParts[] = "PRIMARY KEY (`" . trim($colNames[$k]) . "`)";
+            for ($k = 0; $k < count($colNames);$k++) {
+                if (($colKeys[$k] ?? '') === 'PRIMARY') {$sqlParts[] = "PRIMARY KEY (`" . trim($colNames[$k]) . "`)";
                     break;
                 }
             }
         }
 
         $createSql = "CREATE TABLE `$newTableName` (" . implode(", ", $sqlParts) . ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;";
-        if (mysqli_query($conn, $createSql)) {
-            $_SESSION['success'] = "Table `$newTableName` created successfully!";
+        if (mysqli_query($conn, $createSql)) {$_SESSION['success'] = "Table `$newTableName` created successfully!";
             header("Location: check_tables.php?table=$newTableName&action=view_table");
             exit();
         } else {
@@ -151,7 +160,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_new_table'])) 
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
     <style>
-        body { background: #1cccdf; font-family: 'Plus Jakarta Sans', sans-serif; color: #2b497b; padding: 30px; }
+        body { background: #f4f6f9; font-family: 'Plus Jakarta Sans', sans-serif; color: #2b497b; }
         .glass-header { 
             background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%) !important; 
             color: #ffffff !important; 
@@ -168,7 +177,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_new_table'])) 
     </style>
 </head>
 <body>
-<div class="container-fluid px-md-4">
+<div class="container-fluid px-md-4 py-4">
     <!-- HEADER -->
     <div class="glass-header mb-4 d-flex justify-content-between align-items-center flex-wrap gap-3">
         <div>
@@ -179,7 +188,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_new_table'])) 
             <a href="check_tables.php?action=create_table" class="btn btn-success rounded-pill px-4 fw-bold shadow-sm">
                 <i class="fa-solid fa-circle-plus me-1"></i> New Table
             </a>
-            <a href="../../../dashboard.php" class="btn btn-outline-light rounded-pill px-4 fw-semibold">
+            <a href="/vortex_wms/dashboard.php" class="btn btn-outline-light rounded-pill px-4 fw-semibold">
                 <i class="fa-solid fa-arrow-left me-1"></i> Dashboard
             </a>
         </div>
@@ -202,7 +211,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_new_table'])) 
         $columns = [];
         $colRes = mysqli_query($conn, "SHOW COLUMNS FROM `$selectedTable`");
         while ($cRow = mysqli_fetch_assoc($colRes)) {
-            $columns[] = $cRow;
+            $columns[] =$cRow;
         }
 
         $editRowData = [];
@@ -231,7 +240,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_new_table'])) 
                     <input type="hidden" name="table_name" value="<?= htmlspecialchars($selectedTable); ?>">
                     <input type="hidden" name="row_id" value="<?= $editRowData['id'] ?? 0; ?>">
                     <div class="row g-3">
-                        <?php foreach ($columns as $col): 
+                        <?php foreach ($columns as$col): 
                             if ($col['Field'] === 'id' && empty($editRowData)) continue; 
                             if ($col['Field'] === 'created_at' && empty($editRowData)) continue;
                             $val = $editRowData[$col['Field']] ?? '';
@@ -258,7 +267,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_new_table'])) 
                     <thead class="table-dark">
                         <tr>
                             <th width="90" class="text-center">Actions</th>
-                            <?php foreach ($columns as $c): ?>
+                            <?php foreach ($columns as$c): ?>
                                 <th class="font-mono"><?= $c['Field']; ?></th>
                             <?php endforeach; ?>
                         </tr>
@@ -273,8 +282,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_new_table'])) 
                                         <a href='check_tables.php?table=$selectedTable&action=view_table&edit_id={$r['id']}' class='btn btn-warning btn-sm py-0 px-2 text-white btn-action' title='Edit'><i class='fa-solid fa-pen'></i></a>
                                         <a href='check_tables.php?table=$selectedTable&action=delete_row&id={$r['id']}' class='btn btn-danger btn-sm py-0 px-2 btn-action' title='Delete' onclick=\"return confirm('Delete this record permanently?');\"><i class='fa-solid fa-trash'></i></a>
                                       </td>";
-                                foreach ($columns as $c) {
-                                    $val = $r[$c['Field']] ?? '';
+                                foreach ($columns as $c) {$val = $r[$c['Field']] ?? '';
                                     echo "<td class='font-mono'>" . htmlspecialchars(substr($val, 0, 50)) . (strlen($val) > 50 ? '...' : '') . "</td>";
                                 }
                                 echo "</tr>";
@@ -381,10 +389,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_new_table'])) 
     <?php else: ?>
         <?php
         $totalRowsSum = 0;
-        foreach($validTables as $tbl) {
+        foreach($validTables as$tbl) {
             $rCntQ = mysqli_query($conn, "SELECT COUNT(*) as cnt FROM `$tbl`");
             if($rCntQ && $rRow = mysqli_fetch_assoc($rCntQ)) {
-                $totalRowsSum += $rRow['cnt'];
+                $totalRowsSum +=$rRow['cnt'];
             }
         }
         ?>
@@ -440,14 +448,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_new_table'])) 
                     <tbody>
                         <?php 
                         $i=1; 
-                        foreach($validTables as $tbl): 
-                            $rowCnt = 0;
+                        foreach($validTables as $tbl):$rowCnt = 0;
                             $cntQ = mysqli_query($conn, "SELECT COUNT(*) as c FROM `$tbl`");
-                            if($cntQ && $cr = mysqli_fetch_assoc($cntQ)) $rowCnt = $cr['c'];
+                            if($cntQ && $cr = mysqli_fetch_assoc($cntQ)) $rowCnt =$cr['c'];
 
                             $pk = 'id';
                             $pkQ = mysqli_query($conn, "SHOW KEYS FROM `$tbl` WHERE Key_name = 'PRIMARY'");
-                            if($pkQ && $pkr = mysqli_fetch_assoc($pkQ)) $pk = $pkr['Column_name'];
+                            if($pkQ && $pkr = mysqli_fetch_assoc($pkQ)) $pk =$pkr['Column_name'];
 
                             $colCount = 0;
                             $colQ = mysqli_query($conn, "SHOW COLUMNS FROM `$tbl`");

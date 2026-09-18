@@ -10,6 +10,10 @@ if (!isset($_SESSION['employee_id'])) {
 }
 
 require_once $projectRoot . "/config/database.php";
+include $projectRoot . "/includes/header.php";
+
+// Access Control: Allow Outbound, Warehouse, Operations, Admin & Super Admin
+allowRoles(['Outbound', 'Warehouse', 'Operations']);
 
 // Fetch Pending and Partially Picked Sales Orders
 $result = mysqli_query($conn, "
@@ -25,7 +29,6 @@ $result = mysqli_query($conn, "
     ORDER BY so.id DESC
 ");
 
-include $projectRoot . "/includes/header.php";
 include $projectRoot . "/includes/navbar.php";
 include $projectRoot . "/includes/sidebar.php";
 ?>

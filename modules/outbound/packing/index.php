@@ -9,6 +9,10 @@ if (!isset($_SESSION['employee_id'])) {
 }
 
 require_once $projectRoot . "/config/database.php";
+include $projectRoot . "/includes/header.php";
+
+// Access Control: Allow Outbound, Warehouse, Operations, Admin & Super Admin
+allowRoles(['Outbound', 'Warehouse', 'Operations']);
 
 // Fetch Picked Orders awaiting packing
 $result = mysqli_query($conn, "
@@ -32,7 +36,6 @@ $result = mysqli_query($conn, "
     ORDER BY p.id DESC
 ");
 
-include $projectRoot . "/includes/header.php";
 include $projectRoot . "/includes/navbar.php";
 include $projectRoot . "/includes/sidebar.php";
 ?>

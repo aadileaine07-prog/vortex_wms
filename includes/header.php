@@ -45,6 +45,36 @@ if (isset($_SESSION['employee_id']) && isset($conn)) {
         }
     }
 }
+
+/**
+ * Dynamic Department & Role Access Control Function
+ * - Super Admin & Admin: Full Access
+ * - Other Users: Access only if their department or role matches the allowed list
+ */
+function allowRoles($allowed_departments = []) {
+    if (!isset($_SESSION['employee_id'])) {
+        header("Location: /vortex_wms/login.php");
+        exit();
+    }
+
+    $role = $_SESSION['role'] ?? '';
+    $department = $_SESSION['department'] ?? '';
+
+    // Super Admin aur Admin ko sabhi pages ka full access hai
+    if (in_array($role, ['Super Admin', 'Admin'])) {
+        return true;
+    }
+
+    // Agar user ka department ya role allowed list mein match hota hai
+    if (in_array($department, $allowed_departments) || in_array($role, $allowed_departments)) {
+        return true;
+    }
+
+    // Agar match nahi hua, toh access block karke dashboard par bhej do
+    $_SESSION['error'] = "Access Denied: You are not authorized to access this module.";
+    header("Location: /vortex_wms/dashboard.php");
+    exit();
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -89,19 +119,6 @@ if (isset($_SESSION['employee_id']) && isset($conn)) {
         }
     </style>
 </head>
-<script>
-// Check every 5 seconds if the user has been force logged out
-setInterval(function() {
-    fetch('/vortex_wms/modules/hr/employees/check_logout_status.php')
-        .then(response => response.json())
-        .then(data => {
-            if (data.force_logout === true) {
-                window.location.href = '/vortex_wms/login.php?error=forced_logout';
-            }
-        })
-        .catch(error => console.error('Logout check error:', error));
-}, 5000);
-</script>
 <body>
 
 <?php 
@@ -109,4 +126,18 @@ require_once __DIR__ . "/sidebar.php";
 require_once __DIR__ . "/navbar.php"; 
 ?>
 
-<div class="main-content">  
+<div class="main-content">
+
+<!-- Real-Time Force Logout Polling Script -->
+<script>
+setInterval(function() {
+    fetch('/vortex_wms/modules/hr/employees/check_logout_status.php')
+        .then(response => response.json())
+        .then(data => {
+            if (data.force_lookup === true || data.force_logout === true) {
+                window.location.href = '/vortex_wms/login.php?error=forced_logout';
+            }
+        })
+        .catch(error => console.error('Logout check error:', error));
+}, 5000);
+</script>

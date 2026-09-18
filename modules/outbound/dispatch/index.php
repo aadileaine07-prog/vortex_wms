@@ -1,12 +1,18 @@
 <?php
 session_start();
 
+$projectRoot = dirname(__DIR__, 3);
+
 if (!isset($_SESSION['employee_id'])) {
-    header("Location: ../../../login.php");
+    header("Location: /vortex_wms/login.php");
     exit();
 }
 
-require_once "../../../config/database.php";
+require_once $projectRoot . "/config/database.php";
+include $projectRoot . "/includes/header.php";
+
+// Access Control: Allow Outbound, Warehouse, Operations, Admin & Super Admin
+allowRoles(['Outbound', 'Warehouse', 'Operations']);
 
 $result = mysqli_query($conn,"
 SELECT
@@ -23,8 +29,6 @@ WHERE p.status='Completed'
 AND s.status='Packed'
 ORDER BY p.id DESC
 ");
-
-include "../../../includes/header.php";
 ?>
 
 <div class="content">
@@ -66,13 +70,13 @@ include "../../../includes/header.php";
 
 <tr>
 
-<td><?= $row['packing_number']; ?></td>
+<td><?= htmlspecialchars($row['packing_number']); ?></td>
 
-<td><?= $row['order_number']; ?></td>
+<td><?= htmlspecialchars($row['order_number']); ?></td>
 
-<td><?= $row['customer_name']; ?></td>
+<td><?= htmlspecialchars($row['customer_name']); ?></td>
 
-<td><?= $row['packing_date']; ?></td>
+<td><?= htmlspecialchars($row['packing_date']); ?></td>
 
 <td>
 
@@ -102,4 +106,4 @@ class="btn btn-success btn-sm">
 
 </div>
 
-<?php include "../../../includes/footer.php"; ?>
+<?php include $projectRoot . "/includes/footer.php"; ?>

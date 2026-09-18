@@ -1,5 +1,4 @@
 <?php
-
 session_start();
 
 if (!isset($_SESSION['employee_id'])) {
@@ -8,16 +7,19 @@ if (!isset($_SESSION['employee_id'])) {
 }
 
 require_once "../../../config/database.php";
+include "../../../includes/header.php";
+
+// Access Control: Allow Outbound, Warehouse, Operations, Admin & Super Admin
+allowRoles(['Outbound', 'Warehouse', 'Operations']);
+
+include "../../../includes/navbar.php";
+include "../../../includes/sidebar.php";
 
 $result = mysqli_query($conn, "
     SELECT *
     FROM sales_orders
     ORDER BY id DESC
 ");
-
-include "../../../includes/header.php";
-include "../../../includes/navbar.php";x
-include "../../../includes/sidebar.php";
 ?>
 
 <div class="content">
